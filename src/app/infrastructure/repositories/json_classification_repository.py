@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.domain.models.classification import ClassificationTable
 from app.domain.repositories.classification_repository import ClassificationRepository
-from app.domain.services.classification_extractor import ClassificationTable
 
 
 class JsonClassificationRepository(ClassificationRepository):

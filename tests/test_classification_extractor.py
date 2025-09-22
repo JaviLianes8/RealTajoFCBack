@@ -1,11 +1,8 @@
 from __future__ import annotations
 
+from app.domain.models.classification import ClassificationRow, ClassificationTable
 from app.domain.models.document import DocumentPage, ParsedDocument
-from app.domain.services.classification_extractor import (
-    ClassificationRow,
-    ClassificationTable,
-    extract_classification,
-)
+from app.domain.services.classification_extractor import extract_classification
 
 
 def build_document(*lines: str) -> ParsedDocument:

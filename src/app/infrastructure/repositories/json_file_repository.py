@@ -28,8 +28,26 @@ class JsonFileRepository(DocumentRepository):
             return None
         with self._file_path.open("r", encoding="utf-8") as input_file:
             data = json.load(input_file)
-        pages = [
-            DocumentPage(number=page["number"], content=list(page.get("content", [])))
-            for page in data.get("pages", [])
-        ]
+
+        pages: list[DocumentPage] = []
+        for page in data.get("pages", []):
+            number = page.get("number") if isinstance(page, dict) else None
+            try:
+                page_number = int(number) if number is not None else None
+            except (TypeError, ValueError):
+                page_number = None
+
+            if page_number is None:
+                continue
+
+            raw_content = page.get("content", []) if isinstance(page, dict) else []
+            if isinstance(raw_content, list):
+                content = [str(line) for line in raw_content]
+            elif raw_content is None:
+                content = []
+            else:
+                content = [str(raw_content)]
+
+            pages.append(DocumentPage(number=page_number, content=content))
+
         return ParsedDocument(pages=pages)
