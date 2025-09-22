@@ -259,35 +259,16 @@ def _decode_stats_from_tokens(tokens: List[str], expected_values: int) -> List[i
         return numeric_tokens[:expected_values]
 
     values: List[int] = []
-    for index, token in enumerate(tokens):
+    for token in tokens:
         if len(values) >= expected_values:
             break
+        values.append(int(token))
 
-        remaining_slots = expected_values - len(values)
-        tokens_left = len(tokens) - index
-
-        if _should_split_token(token, remaining_slots, tokens_left):
-            for digit in token:
-                values.append(int(digit))
-                if len(values) >= expected_values:
-                    break
-        else:
-            values.append(int(token))
+    if len(tokens) == 1 and len(tokens[0]) > 2 and len(values) < expected_values:
+        values = []
 
     normalized = _normalize_stat_values(values, expected_values, digits_sequence)
     return normalized if normalized else None
-
-
-def _should_split_token(token: str, remaining_slots: int, tokens_left: int) -> bool:
-    """Return ``True`` when the token must be split to fill missing stats."""
-
-    if remaining_slots <= tokens_left:
-        return False
-    if len(token) <= 2:
-        return False
-    if len(set(token)) == 1:
-        return True
-    return tokens_left == 1
 
 
 def _normalize_stat_values(

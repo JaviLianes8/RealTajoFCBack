@@ -147,3 +147,19 @@ def test_pads_missing_statistics_when_row_is_truncated() -> None:
     assert stats["losses"] == 1
     assert stats["goals_for"] == 1
     assert stats["sanction_points"] == 1
+
+
+def test_does_not_split_single_token_into_individual_stats() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 121210840201050",
+    )
+
+    table = extract_classification(document)
+    stats = table.rows[0].stats
+
+    assert stats["points"] == 0
+    assert stats["played"] == 0
+    assert stats["wins"] == 0
+    assert stats["draws"] == 0
