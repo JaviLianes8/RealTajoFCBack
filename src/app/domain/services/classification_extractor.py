@@ -20,6 +20,39 @@ _STAT_KEYS: List[str] = [
     "sanction_points",
 ]
 
+_COLUMN_STRUCTURE: List[dict] = [
+    {"key": "team", "label": "Equipos"},
+    {"key": "points", "label": "Puntos"},
+    {
+        "key": "matches",
+        "label": "Partidos",
+        "children": [
+            {"key": "played", "label": "J."},
+            {"key": "wins", "label": "G."},
+            {"key": "draws", "label": "E."},
+            {"key": "losses", "label": "P."},
+        ],
+    },
+    {
+        "key": "goals",
+        "label": "Goles",
+        "children": [
+            {"key": "for", "label": "F."},
+            {"key": "against", "label": "C."},
+        ],
+    },
+    {
+        "key": "recent_form",
+        "label": "Últimos",
+        "children": [{"key": "points", "label": "Puntos"}],
+    },
+    {
+        "key": "sanction",
+        "label": "Sanción",
+        "children": [{"key": "points", "label": "Puntos"}],
+    },
+]
+
 _ROW_INDEX_PATTERN = re.compile(r"^\d+")
 _ROW_HAS_LETTER_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
 _ROW_PATTERN = re.compile(r"^(?P<position>\d+)\s*(?P<body>.+)$")
@@ -41,7 +74,19 @@ class ClassificationRow:
         return {
             "position": self.position,
             "team": self.team,
-            "stats": {key: value for key, value in self.stats.items()},
+            "points": self.stats.get("points"),
+            "matches": {
+                "played": self.stats.get("played"),
+                "wins": self.stats.get("wins"),
+                "draws": self.stats.get("draws"),
+                "losses": self.stats.get("losses"),
+            },
+            "goals": {
+                "for": self.stats.get("goals_for"),
+                "against": self.stats.get("goals_against"),
+            },
+            "recent_form": {"points": self.stats.get("last_points")},
+            "sanction": {"points": self.stats.get("sanction_points")},
             "raw": self.raw,
         }
 
@@ -57,8 +102,11 @@ class ClassificationTable:
         """Return a JSON-serializable representation of the classification table."""
 
         return {
-            "headers": list(self.headers),
-            "rows": [row.to_dict() for row in self.rows],
+            "metadata": {
+                "headers": list(self.headers),
+                "columns": _COLUMN_STRUCTURE,
+            },
+            "teams": [row.to_dict() for row in self.rows],
         }
 
 
