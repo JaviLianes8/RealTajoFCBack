@@ -130,3 +130,20 @@ def test_recovers_multi_digit_statistics() -> None:
     assert stats["goals_against"] == 10
     assert stats["last_points"] == 7
     assert stats["sanction_points"] == 0
+
+
+def test_pads_missing_statistics_when_row_is_truncated() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 5 1",
+    )
+
+    table = extract_classification(document)
+    stats = table.rows[0].stats
+
+    assert stats["points"] == 5
+    assert stats["played"] == 1
+    assert stats["losses"] == 1
+    assert stats["goals_for"] == 1
+    assert stats["sanction_points"] == 1

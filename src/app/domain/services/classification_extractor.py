@@ -232,10 +232,10 @@ def _extract_stat_values(stats_section: str) -> List[int]:
     tokens = re.findall(r"\d+", stats_section)
 
     values = _decode_stats_from_tokens(tokens, expected_values)
-    if values is not None:
-        return values
+    if values is None:
+        values = _normalize_stat_values([], expected_values, stats_section)
 
-    return _normalize_stat_values([], expected_values, stats_section)
+    return _pad_missing_statistics(values, expected_values)
 
 
 def _decode_stats_from_tokens(tokens: List[str], expected_values: int) -> List[int] | None:
@@ -300,6 +300,9 @@ def _normalize_stat_values(
 
     digits = re.findall(r"\d", stats_section)
     if not digits:
+        default_value = values[-1] if values else 0
+        while len(values) < expected_values:
+            values.append(default_value)
         return values
 
     default_value = 0 if all(digit == "0" for digit in digits) else (values[-1] if values else 0)
@@ -308,6 +311,21 @@ def _normalize_stat_values(
         values.append(default_value)
 
     return values
+
+
+def _pad_missing_statistics(values: List[int], expected_values: int) -> List[int]:
+    """Ensure the returned statistics list always covers the expected columns."""
+
+    if len(values) >= expected_values:
+        return values[:expected_values]
+
+    padded_values = list(values)
+    default_value = padded_values[-1] if padded_values else 0
+
+    while len(padded_values) < expected_values:
+        padded_values.append(default_value)
+
+    return padded_values
 
 
 def _segment_digits_sequence(digits: str, expected_values: int) -> List[int] | None:
