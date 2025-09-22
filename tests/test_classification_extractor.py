@@ -88,3 +88,45 @@ def test_fills_missing_trailing_stats_with_last_known_value() -> None:
     assert table.rows[0].stats["goals_against"] == 7
     assert table.rows[0].stats["last_points"] == 5
     assert table.rows[0].stats["sanction_points"] == 5
+
+
+def test_recovers_stats_when_numbers_are_concatenated() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 311003130",
+    )
+
+    table = extract_classification(document)
+
+    stats = table.rows[0].stats
+    assert stats["points"] == 3
+    assert stats["played"] == 1
+    assert stats["wins"] == 1
+    assert stats["draws"] == 0
+    assert stats["losses"] == 0
+    assert stats["goals_for"] == 3
+    assert stats["goals_against"] == 1
+    assert stats["last_points"] == 3
+    assert stats["sanction_points"] == 0
+
+
+def test_recovers_multi_digit_statistics() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1AMERICA 1210334151070",
+    )
+
+    table = extract_classification(document)
+
+    stats = table.rows[0].stats
+    assert stats["points"] == 12
+    assert stats["played"] == 10
+    assert stats["wins"] == 3
+    assert stats["draws"] == 3
+    assert stats["losses"] == 4
+    assert stats["goals_for"] == 15
+    assert stats["goals_against"] == 10
+    assert stats["last_points"] == 7
+    assert stats["sanction_points"] == 0
