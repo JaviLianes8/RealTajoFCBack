@@ -62,6 +62,12 @@ def create_app(
 
     api_router = APIRouter(prefix=settings.api_prefix)
 
+    @api_router.get("/status", status_code=status.HTTP_200_OK)
+    async def get_status() -> dict:
+        """Return the operational status and version of the service."""
+
+        return {"status": "ok", "version": settings.app_version}
+
     @api_router.post("/classification", status_code=status.HTTP_201_CREATED)
     async def upload_classification(file: UploadFile = File(...)) -> dict:
         """Parse and persist the uploaded classification PDF, returning its JSON form."""
