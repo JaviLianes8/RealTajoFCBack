@@ -1,30 +1,30 @@
 # RealTajoFCBack
 
-Aplicación backend para procesar documentos PDF de clasificación y calendario.
+Backend application for processing classification and schedule PDF documents.
 
-## Requisitos
+## Requirements
 
 - Python 3.11+
 
-## Instalación
+## Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Ejecución del servidor
+## Running the server
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8765
 ```
 
-El servidor quedará accesible desde el exterior (si la red lo permite) en el puerto `8765`.
+The server will be available from external networks (if permitted) on port `8765`.
 
-## Endpoints disponibles
+## Available endpoints
 
-- `POST /classification/pdf`: subir un PDF de clasificación y almacenarlo como JSON.
-- `GET /classification`: recuperar el último JSON de clasificación procesado.
-- `POST /schedule/pdf`: subir un PDF de calendario y almacenarlo como JSON.
-- `GET /schedule`: recuperar el último JSON de calendario procesado.
+- `POST /classification/pdf`: upload a classification PDF and persist it as JSON.
+- `GET /classification`: retrieve the most recently processed classification JSON.
+- `POST /schedule/pdf`: upload a schedule PDF and persist it as JSON.
+- `GET /schedule`: retrieve the most recently processed schedule JSON.
 
-Cada petición `POST` devuelve el JSON generado a partir del PDF enviado.
+Each `POST` request responds with the JSON generated from the uploaded PDF.

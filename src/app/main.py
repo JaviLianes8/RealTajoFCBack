@@ -29,13 +29,13 @@ async def _read_pdf_bytes(uploaded_file: UploadFile) -> bytes:
     if uploaded_file.content_type not in {"application/pdf", "application/x-pdf"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El archivo debe ser un PDF.",
+            detail="The uploaded file must be a PDF.",
         )
     file_bytes = await uploaded_file.read()
     if not file_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El archivo PDF está vacío.",
+            detail="The PDF file is empty.",
         )
     return file_bytes
 
@@ -55,7 +55,7 @@ async def get_classification() -> dict:
     if parsed_document is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No hay una clasificación procesada.",
+            detail="No processed classification document available.",
         )
     return parsed_document.to_dict()
 
@@ -75,7 +75,7 @@ async def get_schedule() -> dict:
     if parsed_document is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No hay un calendario procesado.",
+            detail="No processed schedule document available.",
         )
     return parsed_document.to_dict()
 
