@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from app.domain.models.document import DocumentPage, ParsedDocument
-from app.domain.services.classification_extractor import extract_classification
+from app.domain.services.classification_extractor import (
+    ClassificationRow,
+    ClassificationTable,
+    extract_classification,
+)
 
 
 def build_document(*lines: str) -> ParsedDocument:
@@ -163,3 +167,32 @@ def test_does_not_split_single_token_into_individual_stats() -> None:
     assert stats["played"] == 0
     assert stats["wins"] == 0
     assert stats["draws"] == 0
+    assert stats["losses"] == 0
+    assert stats["goals_for"] == 0
+    assert stats["goals_against"] == 0
+    assert stats["last_points"] == 0
+    assert stats["sanction_points"] == 0
+
+
+def test_classification_table_roundtrip_serialization() -> None:
+    row = ClassificationRow(
+        position=1,
+        team="ALBIRROJA",
+        stats={
+            "points": 3,
+            "played": 1,
+            "wins": 1,
+            "draws": 0,
+            "losses": 0,
+            "goals_for": 2,
+            "goals_against": 1,
+            "last_points": 3,
+            "sanction_points": 0,
+        },
+        raw="1ALBIRROJA 31002010",
+    )
+    table = ClassificationTable(headers=["Equipos", "Puntos"], rows=[row])
+
+    restored = ClassificationTable.from_dict(table.to_dict())
+
+    assert restored == table

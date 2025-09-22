@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, List
 
 from app.domain.models.document import ParsedDocument
 
@@ -103,6 +103,34 @@ class ClassificationRow:
             "raw": self.raw,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ClassificationRow":
+        """Create a classification row from its serialized representation."""
+
+        matches = data.get("matches", {})
+        goals = data.get("goals", {})
+        recent_form = data.get("recent_form", {})
+        sanction = data.get("sanction", {})
+
+        stats = {
+            "points": data.get("points"),
+            "played": matches.get("played"),
+            "wins": matches.get("wins"),
+            "draws": matches.get("draws"),
+            "losses": matches.get("losses"),
+            "goals_for": goals.get("for"),
+            "goals_against": goals.get("against"),
+            "last_points": recent_form.get("points"),
+            "sanction_points": sanction.get("points"),
+        }
+
+        return cls(
+            position=int(data["position"]),
+            team=str(data["team"]),
+            stats=stats,
+            raw=str(data.get("raw", "")),
+        )
+
 
 @dataclass(frozen=True)
 class ClassificationTable:
@@ -121,6 +149,15 @@ class ClassificationTable:
             },
             "teams": [row.to_dict() for row in self.rows],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ClassificationTable":
+        """Create a classification table from its serialized representation."""
+
+        metadata = data.get("metadata", {})
+        headers = [str(header) for header in metadata.get("headers", [])]
+        rows = [ClassificationRow.from_dict(item) for item in data.get("teams", [])]
+        return cls(headers=headers, rows=rows)
 
 
 def extract_classification(document: ParsedDocument) -> ClassificationTable:
