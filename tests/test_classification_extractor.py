@@ -43,3 +43,18 @@ def test_merges_multi_line_rows_before_parsing() -> None:
     assert table.rows[0].stats["goals_against"] == 0
     assert table.rows[1].team == "CELTIC C.F."
     assert table.rows[1].stats["played"] == 2
+
+
+def test_to_dict_exposes_frontend_friendly_payload() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 0 0 0 0 0 0 0 0",
+    )
+
+    table = extract_classification(document)
+    payload = table.to_dict()
+
+    assert payload["metadata"]["columns"][0]["label"] == "Equipos"
+    assert payload["metadata"]["columns"][2]["children"][0]["key"] == "played"
+    assert payload["teams"][0]["matches"]["wins"] == 0
