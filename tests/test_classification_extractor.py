@@ -58,3 +58,17 @@ def test_to_dict_exposes_frontend_friendly_payload() -> None:
     assert payload["metadata"]["columns"][0]["label"] == "Equipos"
     assert payload["metadata"]["columns"][2]["children"][0]["key"] == "played"
     assert payload["teams"][0]["matches"]["wins"] == 0
+
+
+def test_handles_concatenated_zero_stats_sections() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 0000000 0",
+    )
+
+    table = extract_classification(document)
+
+    assert table.rows[0].stats["points"] == 0
+    assert table.rows[0].stats["losses"] == 0
+    assert table.rows[0].stats["goals_against"] == 0

@@ -177,7 +177,7 @@ def _parse_row(line: str) -> ClassificationRow | None:
     if not team:
         return None
 
-    stats_values = [int(token) for token in re.findall(r"\d+", stats_section)]
+    stats_values = _extract_stat_values(stats_section)
     stats = {
         key: stats_values[index] if index < len(stats_values) else None
         for index, key in enumerate(_STAT_KEYS)
@@ -210,3 +210,40 @@ def _is_row_start(line: str) -> bool:
     """Return ``True`` when the provided line starts a new classification row."""
 
     return bool(_ROW_INDEX_PATTERN.match(line) and _ROW_HAS_LETTER_PATTERN.search(line))
+
+
+def _extract_stat_values(stats_section: str) -> List[int]:
+    """Return numeric statistics extracted from the row tail section."""
+
+    tokens = re.findall(r"\d+", stats_section)
+    values: List[int] = []
+    expected_values = len(_STAT_KEYS)
+
+    for index, token in enumerate(tokens):
+        if len(values) >= expected_values:
+            break
+
+        remaining_slots = expected_values - len(values)
+        tokens_left = len(tokens) - index
+
+        if _should_split_token(token, remaining_slots, tokens_left):
+            for digit in token:
+                values.append(int(digit))
+                if len(values) >= expected_values:
+                    break
+        else:
+            values.append(int(token))
+
+    return values
+
+
+def _should_split_token(token: str, remaining_slots: int, tokens_left: int) -> bool:
+    """Return ``True`` when the token must be split to fill missing stats."""
+
+    if remaining_slots <= tokens_left:
+        return False
+    if len(token) <= 2:
+        return False
+    if len(set(token)) == 1:
+        return True
+    return tokens_left == 1
