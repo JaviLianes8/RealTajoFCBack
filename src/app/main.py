@@ -106,9 +106,3 @@ async def _read_pdf_bytes(uploaded_file: UploadFile) -> bytes:
             detail="The PDF file is empty.",
         )
     return file_bytes
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8765, reload=False)
