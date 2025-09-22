@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.domain.services.classification_extractor import ClassificationRow, ClassificationTable
+from app.domain.models.classification import ClassificationRow, ClassificationTable
 from app.infrastructure.repositories.json_classification_repository import (
     JsonClassificationRepository,
 )

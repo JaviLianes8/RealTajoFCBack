@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from app.domain.services.classification_extractor import ClassificationTable
+from app.domain.models.classification import ClassificationTable
 
 
 class ClassificationRepository(Protocol):
