@@ -20,6 +20,11 @@ _STAT_KEYS: List[str] = [
     "sanction_points",
 ]
 
+_ROW_INDEX_PATTERN = re.compile(r"^\d+")
+_ROW_HAS_LETTER_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
+_ROW_PATTERN = re.compile(r"^(?P<position>\d+)\s*(?P<body>.+)$")
+_TRAILING_NUMBERS_PATTERN = re.compile(r"(\d[\d\s]*)$")
+
 
 @dataclass(frozen=True)
 class ClassificationRow:
@@ -71,7 +76,7 @@ def extract_classification(document: ParsedDocument) -> ClassificationTable:
         return ClassificationTable()
 
     headers = section_lines[:2] if len(section_lines) >= 2 else section_lines
-    row_lines = section_lines[len(headers) :]
+    row_lines = _merge_row_lines(section_lines[len(headers) :])
 
     rows: List[ClassificationRow] = []
     for line in row_lines:
@@ -104,22 +109,56 @@ def _find_section_end(lines: List[str], start_index: int) -> int:
 def _parse_row(line: str) -> ClassificationRow | None:
     """Parse a row of the classification table into a structured entry."""
 
-    tokens = line.split(" ")
-    if not tokens or not tokens[0].isdigit():
+    match = _ROW_PATTERN.match(line)
+    if match is None:
         return None
 
-    position = int(tokens[0])
-    tokens = tokens[1:]
+    position = int(match.group("position"))
+    body = match.group("body").strip()
+    if not body:
+        return None
 
-    numeric_tokens: List[str] = []
-    while tokens and tokens[-1].isdigit():
-        numeric_tokens.insert(0, tokens.pop())
+    stats_section_match = _TRAILING_NUMBERS_PATTERN.search(body)
+    if stats_section_match is None:
+        team = body
+        stats_section = ""
+    else:
+        stats_section = stats_section_match.group(1)
+        team = body[: stats_section_match.start()].strip()
 
-    team = " ".join(tokens).strip()
-    stats_values = [int(token) for token in numeric_tokens]
+    if not team:
+        return None
+
+    stats_values = [int(token) for token in re.findall(r"\d+", stats_section)]
     stats = {
         key: stats_values[index] if index < len(stats_values) else None
         for index, key in enumerate(_STAT_KEYS)
     }
 
     return ClassificationRow(position=position, team=team, stats=stats, raw=line)
+
+
+def _merge_row_lines(lines: List[str]) -> List[str]:
+    """Merge row fragments that span multiple lines into single entries."""
+
+    merged_rows: List[str] = []
+    current_row: str | None = None
+
+    for line in lines:
+        if _is_row_start(line):
+            if current_row:
+                merged_rows.append(current_row.strip())
+            current_row = line
+        elif current_row:
+            current_row = f"{current_row} {line}".strip()
+
+    if current_row:
+        merged_rows.append(current_row.strip())
+
+    return merged_rows
+
+
+def _is_row_start(line: str) -> bool:
+    """Return ``True`` when the provided line starts a new classification row."""
+
+    return bool(_ROW_INDEX_PATTERN.match(line) and _ROW_HAS_LETTER_PATTERN.search(line))
