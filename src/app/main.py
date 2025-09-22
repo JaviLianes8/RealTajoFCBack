@@ -3,22 +3,20 @@ from __future__ import annotations
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 
-from app.application.process_document import (
-    ProcessDocumentUseCase,
-    RetrieveDocumentUseCase,
-)
+from app.application.process_document import ProcessDocumentUseCase, RetrieveDocumentUseCase
 from app.config.settings import get_settings
 from app.domain.services.classification_extractor import extract_classification
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
+from app.infrastructure.repositories.json_classification_repository import (
+    JsonClassificationRepository,
+)
 from app.infrastructure.repositories.json_file_repository import JsonFileRepository
 
 app = FastAPI(title="Document Processor API", version="0.1.0")
 
 settings = get_settings()
 parser = PdfDocumentParser()
-classification_repository = JsonFileRepository(settings.classification_path)
-classification_processor = ProcessDocumentUseCase(parser, classification_repository)
-classification_retriever = RetrieveDocumentUseCase(classification_repository)
+classification_repository = JsonClassificationRepository(settings.classification_path)
 
 schedule_repository = JsonFileRepository(settings.schedule_path)
 schedule_processor = ProcessDocumentUseCase(parser, schedule_repository)
@@ -45,7 +43,7 @@ async def _read_pdf_bytes(uploaded_file: UploadFile) -> bytes:
 async def upload_classification(file: UploadFile = File(...)) -> dict:
     """Parse and persist the uploaded classification PDF, returning its JSON form."""
     pdf_bytes = await _read_pdf_bytes(file)
-    parsed_document = classification_processor.execute(pdf_bytes)
+    parsed_document = parser.parse(pdf_bytes)
     try:
         classification_table = extract_classification(parsed_document)
     except ValueError as extraction_error:
@@ -53,25 +51,19 @@ async def upload_classification(file: UploadFile = File(...)) -> dict:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(extraction_error),
         ) from extraction_error
+    classification_repository.save(classification_table)
     return classification_table.to_dict()
 
 
 @app.get("/classification", status_code=status.HTTP_200_OK)
 async def get_classification() -> dict:
     """Retrieve the stored classification document as JSON."""
-    parsed_document = classification_retriever.execute()
-    if parsed_document is None:
+    classification_table = classification_repository.load()
+    if classification_table is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No processed classification document available.",
         )
-    try:
-        classification_table = extract_classification(parsed_document)
-    except ValueError as extraction_error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(extraction_error),
-        ) from extraction_error
     return classification_table.to_dict()
 
 

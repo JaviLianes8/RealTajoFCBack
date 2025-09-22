@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, List
 
 from app.domain.models.document import ParsedDocument
 
@@ -19,6 +19,7 @@ _STAT_KEYS: List[str] = [
     "last_points",
     "sanction_points",
 ]
+
 
 _COLUMN_STRUCTURE: List[dict] = [
     {"key": "team", "label": "Equipos"},
@@ -58,6 +59,18 @@ _ROW_HAS_LETTER_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
 _ROW_PATTERN = re.compile(r"^(?P<position>\d+)\s*(?P<body>.+)$")
 _TRAILING_NUMBERS_PATTERN = re.compile(r"(\d[\d\s]*)$")
 
+_STAT_LENGTH_RULES: List[tuple[int, ...]] = [
+    (3, 2, 1),  # points can reach triple digits with long seasons
+    (2, 1),  # played
+    (2, 1),  # wins
+    (2, 1),  # draws
+    (2, 1),  # losses
+    (2, 1),  # goals for
+    (2, 1),  # goals against
+    (2, 1),  # recent form points
+    (2, 1),  # sanction points
+]
+
 
 @dataclass(frozen=True)
 class ClassificationRow:
@@ -90,6 +103,34 @@ class ClassificationRow:
             "raw": self.raw,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ClassificationRow":
+        """Create a classification row from its serialized representation."""
+
+        matches = data.get("matches", {})
+        goals = data.get("goals", {})
+        recent_form = data.get("recent_form", {})
+        sanction = data.get("sanction", {})
+
+        stats = {
+            "points": data.get("points"),
+            "played": matches.get("played"),
+            "wins": matches.get("wins"),
+            "draws": matches.get("draws"),
+            "losses": matches.get("losses"),
+            "goals_for": goals.get("for"),
+            "goals_against": goals.get("against"),
+            "last_points": recent_form.get("points"),
+            "sanction_points": sanction.get("points"),
+        }
+
+        return cls(
+            position=int(data["position"]),
+            team=str(data["team"]),
+            stats=stats,
+            raw=str(data.get("raw", "")),
+        )
+
 
 @dataclass(frozen=True)
 class ClassificationTable:
@@ -108,6 +149,15 @@ class ClassificationTable:
             },
             "teams": [row.to_dict() for row in self.rows],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ClassificationTable":
+        """Create a classification table from its serialized representation."""
+
+        metadata = data.get("metadata", {})
+        headers = [str(header) for header in metadata.get("headers", [])]
+        rows = [ClassificationRow.from_dict(item) for item in data.get("teams", [])]
+        return cls(headers=headers, rows=rows)
 
 
 def extract_classification(document: ParsedDocument) -> ClassificationTable:
@@ -177,7 +227,7 @@ def _parse_row(line: str) -> ClassificationRow | None:
     if not team:
         return None
 
-    stats_values = [int(token) for token in re.findall(r"\d+", stats_section)]
+    stats_values = _extract_stat_values(stats_section)
     stats = {
         key: stats_values[index] if index < len(stats_values) else None
         for index, key in enumerate(_STAT_KEYS)
@@ -210,3 +260,170 @@ def _is_row_start(line: str) -> bool:
     """Return ``True`` when the provided line starts a new classification row."""
 
     return bool(_ROW_INDEX_PATTERN.match(line) and _ROW_HAS_LETTER_PATTERN.search(line))
+
+
+def _extract_stat_values(stats_section: str) -> List[int]:
+    """Return numeric statistics extracted from the row tail section."""
+
+    expected_values = len(_STAT_KEYS)
+    tokens = re.findall(r"\d+", stats_section)
+
+    values = _decode_stats_from_tokens(tokens, expected_values)
+    if values is None:
+        values = _normalize_stat_values([], expected_values, stats_section)
+
+    return _pad_missing_statistics(values, expected_values)
+
+
+def _decode_stats_from_tokens(tokens: List[str], expected_values: int) -> List[int] | None:
+    """Return statistics resolved from digit tokens when possible."""
+
+    if not tokens:
+        return None
+
+    numeric_tokens = [int(token) for token in tokens]
+    if len(numeric_tokens) >= expected_values:
+        candidate = numeric_tokens[:expected_values]
+        if _stats_are_consistent(candidate):
+            return candidate
+
+    digits_sequence = "".join(tokens)
+    segmented_values = _segment_digits_sequence(digits_sequence, expected_values)
+    if segmented_values is not None:
+        return segmented_values
+
+    if len(numeric_tokens) >= expected_values:
+        return numeric_tokens[:expected_values]
+
+    values: List[int] = []
+    for token in tokens:
+        if len(values) >= expected_values:
+            break
+        values.append(int(token))
+
+    if len(tokens) == 1 and len(tokens[0]) > 2 and len(values) < expected_values:
+        values = []
+
+    normalized = _normalize_stat_values(values, expected_values, digits_sequence)
+    return normalized if normalized else None
+
+
+def _normalize_stat_values(
+    values: List[int], expected_values: int, stats_section: str
+) -> List[int]:
+    """Fill missing statistic slots with sensible defaults when data is partial."""
+
+    if len(values) >= expected_values:
+        return values[:expected_values]
+
+    digits = re.findall(r"\d", stats_section)
+    if not digits:
+        default_value = values[-1] if values else 0
+        while len(values) < expected_values:
+            values.append(default_value)
+        return values
+
+    default_value = 0 if all(digit == "0" for digit in digits) else (values[-1] if values else 0)
+
+    while len(values) < expected_values:
+        values.append(default_value)
+
+    return values
+
+
+def _pad_missing_statistics(values: List[int], expected_values: int) -> List[int]:
+    """Ensure the returned statistics list always covers the expected columns."""
+
+    if len(values) >= expected_values:
+        return values[:expected_values]
+
+    padded_values = list(values)
+    default_value = padded_values[-1] if padded_values else 0
+
+    while len(padded_values) < expected_values:
+        padded_values.append(default_value)
+
+    return padded_values
+
+
+def _segment_digits_sequence(digits: str, expected_values: int) -> List[int] | None:
+    """Return statistics obtained by segmenting a raw digit sequence."""
+
+    if not digits:
+        return None
+
+    values: List[int] = []
+    solution: List[int] | None = None
+
+    def backtrack(stat_index: int, position: int) -> bool:
+        nonlocal solution
+
+        if stat_index == expected_values:
+            if position == len(digits) and _stats_are_consistent(values):
+                solution = list(values)
+                return True
+            return False
+
+        remaining_digits = len(digits) - position
+        remaining_stats = expected_values - stat_index
+        if remaining_digits < remaining_stats:
+            return False
+
+        for length in _STAT_LENGTH_RULES[stat_index]:
+            if position + length > len(digits):
+                continue
+
+            value = int(digits[position : position + length])
+            values.append(value)
+
+            if _partial_stats_are_valid(values):
+                if backtrack(stat_index + 1, position + length):
+                    return True
+
+            values.pop()
+
+        return False
+
+    backtrack(0, 0)
+    return solution
+
+
+def _partial_stats_are_valid(values: List[int]) -> bool:
+    """Return ``True`` while the partial segmentation remains coherent."""
+
+    if len(values) <= 1:
+        return True
+
+    played = values[1]
+    if len(values) >= 3 and values[2] > played:
+        return False
+    if len(values) >= 4 and values[2] + values[3] > played:
+        return False
+    if len(values) >= 5 and values[2] + values[3] + values[4] > played:
+        return False
+
+    return True
+
+
+def _stats_are_consistent(values: List[int]) -> bool:
+    """Return ``True`` when the provided statistics satisfy basic invariants."""
+
+    if len(values) < len(_STAT_KEYS):
+        return False
+
+    points, played, wins, draws, losses, *_rest, last_points, sanction = values
+
+    if played != wins + draws + losses:
+        return False
+
+    computed_points = wins * 3 + draws - sanction
+    if computed_points < 0:
+        return False
+
+    if computed_points != points:
+        return False
+
+    if last_points < 0 or sanction < 0:
+        return False
+
+    return True
