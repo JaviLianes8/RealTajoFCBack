@@ -72,3 +72,19 @@ def test_handles_concatenated_zero_stats_sections() -> None:
     assert table.rows[0].stats["points"] == 0
     assert table.rows[0].stats["losses"] == 0
     assert table.rows[0].stats["goals_against"] == 0
+    assert table.rows[0].stats["sanction_points"] == 0
+
+
+def test_fills_missing_trailing_stats_with_last_known_value() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 1 2 3 4 5 6 7 5",
+    )
+
+    table = extract_classification(document)
+
+    assert table.rows[0].stats["points"] == 1
+    assert table.rows[0].stats["goals_against"] == 7
+    assert table.rows[0].stats["last_points"] == 5
+    assert table.rows[0].stats["sanction_points"] == 5

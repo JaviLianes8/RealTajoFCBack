@@ -20,6 +20,7 @@ _STAT_KEYS: List[str] = [
     "sanction_points",
 ]
 
+
 _COLUMN_STRUCTURE: List[dict] = [
     {"key": "team", "label": "Equipos"},
     {"key": "points", "label": "Puntos"},
@@ -234,7 +235,7 @@ def _extract_stat_values(stats_section: str) -> List[int]:
         else:
             values.append(int(token))
 
-    return values
+    return _normalize_stat_values(values, expected_values, stats_section)
 
 
 def _should_split_token(token: str, remaining_slots: int, tokens_left: int) -> bool:
@@ -247,3 +248,23 @@ def _should_split_token(token: str, remaining_slots: int, tokens_left: int) -> b
     if len(set(token)) == 1:
         return True
     return tokens_left == 1
+
+
+def _normalize_stat_values(
+    values: List[int], expected_values: int, stats_section: str
+) -> List[int]:
+    """Fill missing statistic slots with sensible defaults when data is partial."""
+
+    if len(values) >= expected_values:
+        return values[:expected_values]
+
+    digits = re.findall(r"\d", stats_section)
+    if not digits:
+        return values
+
+    default_value = 0 if all(digit == "0" for digit in digits) else (values[-1] if values else 0)
+
+    while len(values) < expected_values:
+        values.append(default_value)
+
+    return values
