@@ -8,6 +8,7 @@ from app.application.process_document import (
     RetrieveDocumentUseCase,
 )
 from app.config.settings import get_settings
+from app.domain.services.classification_extractor import extract_classification
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 from app.infrastructure.repositories.json_file_repository import JsonFileRepository
 
@@ -45,7 +46,14 @@ async def upload_classification(file: UploadFile = File(...)) -> dict:
     """Parse and persist the uploaded classification PDF, returning its JSON form."""
     pdf_bytes = await _read_pdf_bytes(file)
     parsed_document = classification_processor.execute(pdf_bytes)
-    return parsed_document.to_dict()
+    try:
+        classification_table = extract_classification(parsed_document)
+    except ValueError as extraction_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(extraction_error),
+        ) from extraction_error
+    return classification_table.to_dict()
 
 
 @app.get("/classification", status_code=status.HTTP_200_OK)
@@ -57,7 +65,14 @@ async def get_classification() -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No processed classification document available.",
         )
-    return parsed_document.to_dict()
+    try:
+        classification_table = extract_classification(parsed_document)
+    except ValueError as extraction_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(extraction_error),
+        ) from extraction_error
+    return classification_table.to_dict()
 
 
 @app.post("/schedule/pdf", status_code=status.HTTP_201_CREATED)
