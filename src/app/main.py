@@ -13,21 +13,36 @@ from app.application.process_document import (
     ProcessDocumentUseCase,
     RetrieveDocumentUseCase,
 )
+from app.application.process_real_tajo_calendar import (
+    ProcessRealTajoCalendarUseCase,
+    RetrieveRealTajoCalendarUseCase,
+)
 from app.config.settings import get_settings
 from app.domain.repositories.classification_repository import ClassificationRepository
 from app.domain.repositories.document_repository import DocumentRepository
+from app.domain.repositories.real_tajo_calendar_repository import (
+    RealTajoCalendarRepository,
+)
 from app.domain.services.classification_extractor import ClassificationExtractorService
+from app.domain.services.real_tajo_calendar_extractor import (
+    RealTajoCalendarExtractorService,
+)
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 from app.infrastructure.repositories.json_classification_repository import (
     JsonClassificationRepository,
 )
 from app.infrastructure.repositories.json_file_repository import JsonFileRepository
+from app.infrastructure.repositories.json_real_tajo_calendar_repository import (
+    JsonRealTajoCalendarRepository,
+)
 
 
 def create_app(
     document_parser: DocumentParser | None = None,
     classification_repo: ClassificationRepository | None = None,
     schedule_repo: DocumentRepository | None = None,
+    real_tajo_calendar_repo: RealTajoCalendarRepository | None = None,
+    real_tajo_calendar_extractor: RealTajoCalendarExtractorService | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application instance."""
 
@@ -38,6 +53,10 @@ def create_app(
         or JsonClassificationRepository(settings.classification_path)
     )
     schedule_repository = schedule_repo or JsonFileRepository(settings.schedule_path)
+    real_tajo_repository = (
+        real_tajo_calendar_repo
+        or JsonRealTajoCalendarRepository(settings.real_tajo_calendar_path)
+    )
 
     classification_extractor = ClassificationExtractorService()
     classification_processor = ProcessClassificationUseCase(
@@ -49,6 +68,14 @@ def create_app(
 
     schedule_processor = ProcessDocumentUseCase(pdf_parser, schedule_repository)
     schedule_retriever = RetrieveDocumentUseCase(schedule_repository)
+
+    calendar_extractor = real_tajo_calendar_extractor or RealTajoCalendarExtractorService()
+    real_tajo_processor = ProcessRealTajoCalendarUseCase(
+        pdf_parser,
+        calendar_extractor,
+        real_tajo_repository,
+    )
+    real_tajo_retriever = RetrieveRealTajoCalendarUseCase(real_tajo_repository)
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
@@ -119,6 +146,35 @@ def create_app(
                 detail="No processed schedule document available.",
             )
         return parsed_document.to_dict()
+
+    @api_router.post(
+        "/real-tajo/calendar",
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def upload_real_tajo_calendar(file: UploadFile = File(...)) -> dict:
+        """Parse and persist the Real Tajo calendar PDF, returning its JSON form."""
+
+        pdf_bytes = await _read_pdf_bytes(file, settings.max_upload_size_bytes)
+        try:
+            calendar = real_tajo_processor.execute(pdf_bytes)
+        except ValueError as processing_error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(processing_error),
+            ) from processing_error
+        return calendar.to_dict()
+
+    @api_router.get("/real-tajo/calendar", status_code=status.HTTP_200_OK)
+    async def get_real_tajo_calendar() -> dict:
+        """Retrieve the stored Real Tajo calendar as JSON."""
+
+        calendar = real_tajo_retriever.execute()
+        if calendar is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed Real Tajo calendar available.",
+            )
+        return calendar.to_dict()
 
     app.include_router(api_router)
     return app

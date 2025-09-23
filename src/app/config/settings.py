@@ -13,6 +13,7 @@ class Settings:
     data_dir: Path = Path("data")
     classification_filename: str = "classification.json"
     schedule_filename: str = "schedule.json"
+    real_tajo_calendar_filename: str = "real_tajo_calendar.json"
     app_version: str = "0.1.0"
     api_version: str = "v1"
     allowed_origins: Tuple[str, ...] = ("*",)
@@ -29,6 +30,12 @@ class Settings:
         """Return the full path for storing schedule data."""
 
         return self.data_dir / self.schedule_filename
+
+    @property
+    def real_tajo_calendar_path(self) -> Path:
+        """Return the full path for storing the Real Tajo calendar data."""
+
+        return self.data_dir / self.real_tajo_calendar_filename
 
     @property
     def api_prefix(self) -> str:
