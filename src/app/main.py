@@ -1,7 +1,17 @@
 """Application entry point defining the HTTP API."""
 from __future__ import annotations
 
-from fastapi import APIRouter, FastAPI, File, HTTPException, UploadFile, status
+from typing import Callable, Protocol
+
+from fastapi import (
+    APIRouter,
+    FastAPI,
+    File,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.application.process_classification import (
@@ -95,19 +105,19 @@ def create_app(
 
         return {"status": "ok", "version": settings.app_version}
 
-    @api_router.post("/classification", status_code=status.HTTP_201_CREATED)
-    async def upload_classification(file: UploadFile = File(...)) -> dict:
+    @api_router.put("/classification", status_code=status.HTTP_200_OK)
+    async def upload_classification(
+        response: Response, file: UploadFile = File(...)
+    ) -> dict:
         """Parse and persist the uploaded classification PDF, returning its JSON form."""
 
-        pdf_bytes = await _read_pdf_bytes(file, settings.max_upload_size_bytes)
-        try:
-            classification_table = classification_processor.execute(pdf_bytes)
-        except ValueError as extraction_error:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(extraction_error),
-            ) from extraction_error
-        return classification_table.to_dict()
+        return await _process_upload(
+            file,
+            response,
+            settings.max_upload_size_bytes,
+            classification_processor.execute,
+            f"{settings.api_prefix}/classification",
+        )
 
     @api_router.get("/classification", status_code=status.HTTP_200_OK)
     async def get_classification() -> dict:
@@ -121,19 +131,17 @@ def create_app(
             )
         return classification_table.to_dict()
 
-    @api_router.post("/schedule", status_code=status.HTTP_201_CREATED)
-    async def upload_schedule(file: UploadFile = File(...)) -> dict:
+    @api_router.put("/schedule", status_code=status.HTTP_200_OK)
+    async def upload_schedule(response: Response, file: UploadFile = File(...)) -> dict:
         """Parse and persist the uploaded schedule PDF, returning its JSON form."""
 
-        pdf_bytes = await _read_pdf_bytes(file, settings.max_upload_size_bytes)
-        try:
-            parsed_document = schedule_processor.execute(pdf_bytes)
-        except ValueError as processing_error:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(processing_error),
-            ) from processing_error
-        return parsed_document.to_dict()
+        return await _process_upload(
+            file,
+            response,
+            settings.max_upload_size_bytes,
+            schedule_processor.execute,
+            f"{settings.api_prefix}/schedule",
+        )
 
     @api_router.get("/schedule", status_code=status.HTTP_200_OK)
     async def get_schedule() -> dict:
@@ -147,19 +155,19 @@ def create_app(
             )
         return parsed_document.to_dict()
 
-    @api_router.post("/real-tajo/calendar", status_code=status.HTTP_201_CREATED)
-    async def upload_real_tajo_calendar(file: UploadFile = File(...)) -> dict:
+    @api_router.put("/real-tajo/calendar", status_code=status.HTTP_200_OK)
+    async def upload_real_tajo_calendar(
+        response: Response, file: UploadFile = File(...)
+    ) -> dict:
         """Parse and persist the uploaded Real Tajo calendar PDF, returning its JSON form."""
 
-        pdf_bytes = await _read_pdf_bytes(file, settings.max_upload_size_bytes)
-        try:
-            calendar = real_tajo_calendar_processor.execute(pdf_bytes)
-        except ValueError as processing_error:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(processing_error),
-            ) from processing_error
-        return calendar.to_dict()
+        return await _process_upload(
+            file,
+            response,
+            settings.max_upload_size_bytes,
+            real_tajo_calendar_processor.execute,
+            f"{settings.api_prefix}/real-tajo/calendar",
+        )
 
     @api_router.get("/real-tajo/calendar", status_code=status.HTTP_200_OK)
     async def get_real_tajo_calendar() -> dict:
@@ -203,3 +211,39 @@ async def _read_pdf_bytes(uploaded_file: UploadFile, max_size_bytes: int) -> byt
         )
 
     return file_bytes
+
+
+class _SerializableResource(Protocol):
+    """Represent an object that can be expressed as a JSON-serializable dictionary."""
+
+    def to_dict(self) -> dict:
+        """Return the dictionary representation of the resource."""
+
+
+async def _process_upload(
+    file: UploadFile,
+    response: Response,
+    max_size_bytes: int,
+    processor: Callable[[bytes], _SerializableResource],
+    resource_path: str,
+) -> dict:
+    """Parse, persist and serialize an uploaded PDF, handling domain errors uniformly."""
+
+    pdf_bytes = await _read_pdf_bytes(file, max_size_bytes)
+    resource = _execute_processor(processor, pdf_bytes)
+    response.headers["Location"] = resource_path
+    return resource.to_dict()
+
+
+def _execute_processor(
+    processor: Callable[[bytes], _SerializableResource], document_bytes: bytes
+) -> _SerializableResource:
+    """Execute a processor function converting domain ``ValueError`` to HTTP errors."""
+
+    try:
+        return processor(document_bytes)
+    except ValueError as processing_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(processing_error),
+        ) from processing_error
