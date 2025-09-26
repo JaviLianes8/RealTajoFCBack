@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from app.domain.models.classification import ClassificationRow, ClassificationTable
+from datetime import date
+
+from app.domain.models.classification import (
+    ClassificationLastMatch,
+    ClassificationLastMatchTeam,
+    ClassificationRow,
+    ClassificationTable,
+)
 from app.domain.models.document import DocumentPage, ParsedDocument
 from app.domain.services.classification_extractor import extract_classification
 
@@ -58,6 +65,7 @@ def test_to_dict_exposes_frontend_friendly_payload() -> None:
 
     assert payload["metadata"]["columns"][0]["label"] == "Equipos"
     assert payload["metadata"]["columns"][2]["children"][0]["key"] == "played"
+    assert payload["last_match"] is None
     assert payload["teams"][0]["matches"]["wins"] == 0
 
 
@@ -188,8 +196,52 @@ def test_classification_table_roundtrip_serialization() -> None:
         },
         raw="1ALBIRROJA 31002010",
     )
-    table = ClassificationTable(headers=["Equipos", "Puntos"], rows=[row])
+    last_match = ClassificationLastMatch(
+        matchday=5,
+        date=date(2024, 11, 2),
+        home_team=ClassificationLastMatchTeam(name="REAL TAJO", score=2),
+        away_team=ClassificationLastMatchTeam(name="SPLASH FC", score=3),
+    )
+    table = ClassificationTable(headers=["Equipos", "Puntos"], rows=[row], last_match=last_match)
 
     restored = ClassificationTable.from_dict(table.to_dict())
 
     assert restored == table
+
+
+def test_extracts_last_match_with_scores() -> None:
+    document = build_document(
+        "Jornada 1 (11-10-2025)",
+        "REAL TAJO C.F. 2 - 3 SPLASH FC",
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 0 0 0 0 0 0 0 0",
+    )
+
+    table = extract_classification(document)
+
+    assert table.last_match is not None
+    assert table.last_match.matchday == 1
+    assert table.last_match.date == date(2025, 10, 11)
+    assert table.last_match.home_team.name == "REAL TAJO C.F."
+    assert table.last_match.home_team.score == 2
+    assert table.last_match.away_team.name == "SPLASH FC"
+    assert table.last_match.away_team.score == 3
+
+
+def test_extracts_last_match_without_scores_returns_placeholder() -> None:
+    document = build_document(
+        "Jornada 1 (11-10-2025)",
+        "REAL TAJO - RACING ARANJUEZ",
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1ALBIRROJA 0 0 0 0 0 0 0 0",
+    )
+
+    table = extract_classification(document)
+
+    assert table.last_match is not None
+    assert table.last_match.home_team.name == "REAL TAJO"
+    assert table.last_match.home_team.score == 0
+    assert table.last_match.away_team.name == "RACING ARANJUEZ"
+    assert table.last_match.away_team.score == 0

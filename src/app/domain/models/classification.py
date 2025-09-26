@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List
+from datetime import date, datetime
+from typing import Any, List, Optional
 
 _COLUMN_STRUCTURE: List[dict[str, Any]] = [
     {"key": "team", "label": "Equipos"},
@@ -36,6 +37,89 @@ _COLUMN_STRUCTURE: List[dict[str, Any]] = [
         "children": [{"key": "points", "label": "Puntos"}],
     },
 ]
+
+
+@dataclass(frozen=True)
+class ClassificationLastMatchTeam:
+    """Represent a team entry within the last known Real Tajo fixture."""
+
+    name: str
+    score: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation of the team."""
+
+        return {"name": self.name, "score": self.score}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ClassificationLastMatchTeam":
+        """Create a team instance from its serialized representation."""
+
+        name = str(data.get("name", "")).strip()
+        score_value = data.get("score")
+        try:
+            score = int(score_value) if score_value is not None else 0
+        except (TypeError, ValueError):
+            score = 0
+        return cls(name=name, score=score)
+
+
+@dataclass(frozen=True)
+class ClassificationLastMatch:
+    """Represent the last Real Tajo fixture summary located in the classification PDF."""
+
+    matchday: Optional[int] = None
+    date: Optional[date] = None
+    home_team: ClassificationLastMatchTeam = field(
+        default_factory=lambda: ClassificationLastMatchTeam(name="REAL TAJO")
+    )
+    away_team: ClassificationLastMatchTeam = field(
+        default_factory=lambda: ClassificationLastMatchTeam(name="")
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation of the last match summary."""
+
+        return {
+            "matchday": self.matchday,
+            "date": self.date.isoformat() if self.date else None,
+            "home_team": self.home_team.to_dict(),
+            "away_team": self.away_team.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ClassificationLastMatch":
+        """Create a last match instance from its serialized representation."""
+
+        matchday_value = data.get("matchday") if isinstance(data, dict) else None
+        try:
+            matchday = int(matchday_value) if matchday_value is not None else None
+        except (TypeError, ValueError):
+            matchday = None
+
+        date_value = data.get("date") if isinstance(data, dict) else None
+        parsed_date: Optional[date] = None
+        if isinstance(date_value, str) and date_value:
+            try:
+                parsed_date = datetime.strptime(date_value, "%Y-%m-%d").date()
+            except ValueError:
+                parsed_date = None
+
+        home_team_data = data.get("home_team") if isinstance(data, dict) else None
+        away_team_data = data.get("away_team") if isinstance(data, dict) else None
+
+        home_team = (
+            ClassificationLastMatchTeam.from_dict(home_team_data)
+            if isinstance(home_team_data, dict)
+            else ClassificationLastMatchTeam(name="REAL TAJO")
+        )
+        away_team = (
+            ClassificationLastMatchTeam.from_dict(away_team_data)
+            if isinstance(away_team_data, dict)
+            else ClassificationLastMatchTeam(name="")
+        )
+
+        return cls(matchday=matchday, date=parsed_date, home_team=home_team, away_team=away_team)
 
 
 @dataclass(frozen=True)
@@ -104,6 +188,7 @@ class ClassificationTable:
 
     headers: List[str] = field(default_factory=list)
     rows: List[ClassificationRow] = field(default_factory=list)
+    last_match: ClassificationLastMatch | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation of the classification table."""
@@ -114,6 +199,7 @@ class ClassificationTable:
                 "columns": _COLUMN_STRUCTURE,
             },
             "teams": [row.to_dict() for row in self.rows],
+            "last_match": self.last_match.to_dict() if self.last_match else None,
         }
 
     @classmethod
@@ -123,11 +209,19 @@ class ClassificationTable:
         metadata = data.get("metadata", {})
         headers = [str(header) for header in metadata.get("headers", [])]
         rows = [ClassificationRow.from_dict(item) for item in data.get("teams", [])]
-        return cls(headers=headers, rows=rows)
+        last_match_data = data.get("last_match") if isinstance(data, dict) else None
+        last_match = (
+            ClassificationLastMatch.from_dict(last_match_data)
+            if isinstance(last_match_data, dict)
+            else None
+        )
+        return cls(headers=headers, rows=rows, last_match=last_match)
 
 
 __all__ = [
     "ClassificationRow",
     "ClassificationTable",
+    "ClassificationLastMatch",
+    "ClassificationLastMatchTeam",
 ]
 

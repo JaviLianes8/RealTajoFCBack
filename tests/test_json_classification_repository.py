@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.domain.models.classification import ClassificationRow, ClassificationTable
+from datetime import date
+
+from app.domain.models.classification import (
+    ClassificationLastMatch,
+    ClassificationLastMatchTeam,
+    ClassificationRow,
+    ClassificationTable,
+)
 from app.infrastructure.repositories.json_classification_repository import (
     JsonClassificationRepository,
 )
@@ -25,7 +32,13 @@ def build_table() -> ClassificationTable:
         },
         raw="1ALBIRROJA 93030720",
     )
-    return ClassificationTable(headers=["Equipos", "Puntos"], rows=[row])
+    last_match = ClassificationLastMatch(
+        matchday=1,
+        date=date(2025, 10, 11),
+        home_team=ClassificationLastMatchTeam(name="REAL TAJO", score=0),
+        away_team=ClassificationLastMatchTeam(name="RACING ARANJUEZ", score=0),
+    )
+    return ClassificationTable(headers=["Equipos", "Puntos"], rows=[row], last_match=last_match)
 
 
 def test_repository_persists_and_loads_classification_table(tmp_path: Path) -> None:
