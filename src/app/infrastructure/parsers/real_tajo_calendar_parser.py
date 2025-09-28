@@ -190,7 +190,7 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
                 break
 
             home_team, away_team, consumed = parsed_match
-            buffer = buffer[consumed:].lstrip(" -,.\n")
+            buffer = buffer[consumed:].lstrip(" -–—,.\n")
 
             if real_tajo_name not in (home_team, away_team):
                 continue
@@ -215,13 +215,13 @@ def _is_stage_line(lower_line: str) -> bool:
     return "primera vuelta" in lower_line or "segunda vuelta" in lower_line
 
 
-MATCH_SEPARATOR_PATTERN = re.compile(r"\s*-\s*")
+MATCH_SEPARATOR_PATTERN = re.compile(r"\s*[-–—]\s*")
 
 
 def _parse_match(text: str, team_names: Sequence[str]) -> Optional[Tuple[str, str, int]]:
     """Attempt to extract the next match from ``text`` splitting by known team names."""
 
-    if "-" not in text:
+    if not any(separator in text for separator in "-–—"):
         return None
 
     for home_team in team_names:

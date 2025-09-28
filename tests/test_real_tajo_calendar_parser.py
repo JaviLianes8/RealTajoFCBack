@@ -346,6 +346,42 @@ def test_parser_accepts_matches_without_spaces_around_separator() -> None:
     assert match.is_home is False
 
 
+def test_parser_handles_en_dash_separators() -> None:
+    """Ensure fixtures using typographic dashes are correctly processed."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Equipos Participantes",
+                    "1.- REAL TAJO (1048)",
+                    "2.- REAL SPORT (1047)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 4 (08-11-2025)",
+                    "REAL SPORT – REAL TAJO",
+                    "Jornada 5 (15-11-2025)",
+                    "REAL TAJO — REAL SPORT",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"en-dash")
+
+    assert {(match.matchday, match.opponent, match.is_home) for match in calendar.matches} == {
+        (4, "REAL SPORT", False),
+        (5, "REAL SPORT", True),
+    }
+
+
 def test_parser_supports_multiline_team_names_in_participants_section() -> None:
     """Ensure the parser recognises team names split across multiple lines."""
 
