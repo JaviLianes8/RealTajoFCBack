@@ -395,6 +395,7 @@ def _parse_float_token(token: str) -> Optional[float]:
     if not normalized:
         return None
 
+    normalized = normalized.rstrip(";:()[]{}")
     normalized = normalized.replace(" ", "")
 
     if "," in normalized and "." in normalized:
