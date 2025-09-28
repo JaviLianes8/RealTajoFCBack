@@ -14,6 +14,7 @@ class Settings:
     classification_filename: str = "classification.json"
     schedule_filename: str = "schedule.json"
     real_tajo_calendar_filename: str = "real_tajo_calendar.json"
+    top_scorers_filename: str = "top_scorers.json"
     app_version: str = "0.1.0"
     api_version: str = "v1"
     allowed_origins: Tuple[str, ...] = ("*",)
@@ -36,6 +37,12 @@ class Settings:
         """Return the storage path for the Real Tajo calendar data."""
 
         return self.data_dir / self.real_tajo_calendar_filename
+
+    @property
+    def top_scorers_path(self) -> Path:
+        """Return the storage path for the top scorers data."""
+
+        return self.data_dir / self.top_scorers_filename
 
     @property
     def api_prefix(self) -> str:
