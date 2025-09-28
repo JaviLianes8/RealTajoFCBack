@@ -102,3 +102,48 @@ def test_top_scorers_parser_accepts_dot_decimal_row_terminator() -> None:
     assert table.scorers[0].goals_per_match == 1.5
     assert table.scorers[1].goals_per_match == 2.0
 
+
+def test_top_scorers_parser_joins_split_numeric_lines() -> None:
+    """The parser should join rows even when numeric columns span multiple lines."""
+
+    lines = [
+        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
+        "Jugador Equipo Grupo Partidos",
+        "ARRIAGA MARTINEZ, MANUEL NEW COTTON MEKASO MCS 2ª AFICIONADOS",
+        "F-11 2",
+        "4",
+        "(1 de",
+        "penalti) 2,0000",
+    ]
+
+    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
+
+    table = parser.parse(b"pdf-bytes")
+
+    assert len(table.scorers) == 1
+    scorer = table.scorers[0]
+    assert scorer.matches_played == 2
+    assert scorer.goals_total == 4
+    assert scorer.penalty_goals == 1
+
+
+def test_top_scorers_parser_accepts_matches_with_trailing_punctuation() -> None:
+    """The parser should locate numeric columns even with trailing punctuation."""
+
+    lines = [
+        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
+        "Jugador Equipo Grupo Partidos",
+        "BOCANEGRA CAIPA, JOHN DAIRO CAFETERIA LA TACITA 2ª AFICIONADOS",
+        "F-11 2, 4 2,0000",
+    ]
+
+    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
+
+    table = parser.parse(b"pdf-bytes")
+
+    assert len(table.scorers) == 1
+    scorer = table.scorers[0]
+    assert scorer.matches_played == 2
+    assert scorer.goals_total == 4
+    assert scorer.goals_per_match == 2.0
+
