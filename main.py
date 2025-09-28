@@ -17,11 +17,17 @@ def _add_src_to_path() -> None:
         sys.path.insert(0, src_dir_str)
 
 
+_add_src_to_path()
+
+from app.main import create_app  # noqa: E402  (requires sys.path update)
+
+app = create_app()
+
+
 def main() -> None:
     """Run the API server using Uvicorn."""
 
-    _add_src_to_path()
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8765, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8765, reload=False)
 
 
 if __name__ == "__main__":

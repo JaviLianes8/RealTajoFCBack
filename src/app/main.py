@@ -89,6 +89,12 @@ def create_app(
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
+    @app.get("/", status_code=status.HTTP_200_OK)
+    async def get_root() -> dict[str, str]:
+        """Return a simple heartbeat response for uptime monitoring."""
+
+        return {"message": "RUNNING REAL TAJO BACK"}
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
