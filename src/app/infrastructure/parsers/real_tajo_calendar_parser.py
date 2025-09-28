@@ -215,6 +215,9 @@ def _is_stage_line(lower_line: str) -> bool:
     return "primera vuelta" in lower_line or "segunda vuelta" in lower_line
 
 
+MATCH_SEPARATOR_PATTERN = re.compile(r"\s*-\s*")
+
+
 def _parse_match(text: str, team_names: Sequence[str]) -> Optional[Tuple[str, str, int]]:
     """Attempt to extract the next match from ``text`` splitting by known team names."""
 
@@ -222,15 +225,62 @@ def _parse_match(text: str, team_names: Sequence[str]) -> Optional[Tuple[str, st
         return None
 
     for home_team in team_names:
-        prefix = f"{home_team} - "
-        if not text.startswith(prefix):
+        consumed_home = _match_prefix(text, home_team)
+        if consumed_home is None:
             continue
-        remainder = text[len(prefix) :]
+
+        remainder = text[consumed_home:]
+        separator_match = MATCH_SEPARATOR_PATTERN.match(remainder)
+        if not separator_match:
+            continue
+
+        remainder = remainder[separator_match.end() :]
         for away_team in team_names:
-            if remainder.startswith(away_team):
-                consumed = len(prefix) + len(away_team)
-                return home_team, away_team, consumed
+            consumed_away = _match_prefix(remainder, away_team)
+            if consumed_away is None:
+                continue
+
+            consumed = consumed_home + separator_match.end() + consumed_away
+            return home_team, away_team, consumed
+
     return None
+
+
+def _match_prefix(text: str, candidate: str) -> Optional[int]:
+    """Return the length of ``candidate`` within ``text`` ignoring case and accents."""
+
+    normalized_candidate = _normalize_for_matching(candidate)
+    if not normalized_candidate:
+        return None
+
+    normalized_so_far = ""
+    consumed = 0
+
+    for char in text:
+        normalized_char = _normalize_for_matching(char)
+        if not normalized_char:
+            consumed += 1
+            continue
+
+        tentative = normalized_so_far + normalized_char
+        if not normalized_candidate.startswith(tentative):
+            return None
+
+        normalized_so_far = tentative
+        consumed += 1
+
+        if normalized_so_far == normalized_candidate:
+            return consumed
+
+    return None
+
+
+def _normalize_for_matching(text: str) -> str:
+    """Uppercase ``text`` removing accent marks to support fuzzy comparisons."""
+
+    normalized = unicodedata.normalize("NFD", text)
+    stripped = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+    return stripped.upper()
 
 
 KIT_PAIR_PATTERN = re.compile(

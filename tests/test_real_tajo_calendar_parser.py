@@ -357,3 +357,49 @@ def test_parser_supports_multiline_team_names_in_participants_section() -> None:
         "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO",
         "IRT ARANJUEZ",
     }
+
+
+def test_parser_matches_teams_even_when_schedule_uses_accents() -> None:
+    """Verify fixtures are captured despite accent differences between sections."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Calendario de Competiciones",
+                    "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+                    "Equipos Participantes",
+                    "1.- AMERICA (1052)",
+                    "2.- AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO (1027)",
+                    "3.- IRT ARANJUEZ (1049)",
+                    "4.- REAL TAJO (1048)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 1 (11-10-2025)",
+                    "AMÉRICA - REAL TAJO",
+                    "Jornada 2 (18-10-2025)",
+                    "REAL TAJO - AMG-ASESORIA JURÍDICA- EXCAVACIONES TAJO",
+                    "Jornada 3 (25-10-2025)",
+                    "IRT ARANJUEZ - REAL TAJO",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"accents")
+
+    assert [
+        (match.matchday, match.opponent, match.is_home)
+        for match in calendar.matches
+    ] == [
+        (1, "AMERICA", False),
+        (2, "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO", True),
+        (3, "IRT ARANJUEZ", False),
+    ]
