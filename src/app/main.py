@@ -28,12 +28,18 @@ from app.application.process_real_tajo_calendar import (
     RealTajoCalendarParser,
     RetrieveRealTajoCalendarUseCase,
 )
+from app.application.process_top_scorers import (
+    ProcessTopScorersUseCase,
+    RetrieveTopScorersUseCase,
+    TopScorersParser,
+)
 from app.config.settings import get_settings
 from app.domain.repositories.classification_repository import ClassificationRepository
 from app.domain.repositories.document_repository import DocumentRepository
 from app.domain.repositories.real_tajo_calendar_repository import (
     RealTajoCalendarRepository,
 )
+from app.domain.repositories.top_scorer_repository import TopScorersRepository
 from app.domain.services.classification_extractor import ClassificationExtractorService
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 from app.infrastructure.repositories.json_classification_repository import (
@@ -46,6 +52,10 @@ from app.infrastructure.repositories.json_file_repository import JsonFileReposit
 from app.infrastructure.repositories.json_real_tajo_calendar_repository import (
     JsonRealTajoCalendarRepository,
 )
+from app.infrastructure.parsers.top_scorers_pdf_parser import TopScorersPdfParser
+from app.infrastructure.repositories.json_top_scorers_repository import (
+    JsonTopScorersRepository,
+)
 
 
 def create_app(
@@ -54,6 +64,8 @@ def create_app(
     schedule_repo: DocumentRepository | None = None,
     real_tajo_parser: RealTajoCalendarParser | None = None,
     real_tajo_repo: RealTajoCalendarRepository | None = None,
+    top_scorers_parser: TopScorersParser | None = None,
+    top_scorers_repo: TopScorersRepository | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application instance."""
 
@@ -68,6 +80,11 @@ def create_app(
         real_tajo_repo
         if real_tajo_repo is not None
         else JsonRealTajoCalendarRepository(settings.real_tajo_calendar_path)
+    )
+    scorers_repository = (
+        top_scorers_repo
+        if top_scorers_repo is not None
+        else JsonTopScorersRepository(settings.top_scorers_path)
     )
 
     classification_extractor = ClassificationExtractorService()
@@ -86,6 +103,13 @@ def create_app(
         real_tajo_repository,
     )
     real_tajo_calendar_retriever = RetrieveRealTajoCalendarUseCase(real_tajo_repository)
+
+    scorers_parser_service = top_scorers_parser or TopScorersPdfParser(pdf_parser)
+    top_scorers_processor = ProcessTopScorersUseCase(
+        scorers_parser_service,
+        scorers_repository,
+    )
+    top_scorers_retriever = RetrieveTopScorersUseCase(scorers_repository)
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
@@ -186,6 +210,30 @@ def create_app(
                 detail="No processed Real Tajo calendar available.",
             )
         return calendar.to_dict()
+
+    @api_router.put("/top-scorers", status_code=status.HTTP_200_OK)
+    async def upload_top_scorers(response: Response, file: UploadFile = File(...)) -> dict:
+        """Parse and persist the uploaded top scorers PDF, returning its JSON form."""
+
+        return await _process_upload(
+            file,
+            response,
+            settings.max_upload_size_bytes,
+            top_scorers_processor.execute,
+            f"{settings.api_prefix}/top-scorers",
+        )
+
+    @api_router.get("/top-scorers", status_code=status.HTTP_200_OK)
+    async def get_top_scorers() -> dict:
+        """Retrieve the stored top scorers table as JSON."""
+
+        table = top_scorers_retriever.execute()
+        if table is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed top scorers document available.",
+            )
+        return table.to_dict()
 
     app.include_router(api_router)
     return app
