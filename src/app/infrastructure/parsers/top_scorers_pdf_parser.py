@@ -249,16 +249,12 @@ def _parse_row(tokens: List[str], raw_lines: List[str], default_group: Optional[
     if len(tokens) < 4:
         raise ValueError("Incomplete scorer row detected in the PDF.")
 
-    goals_per_match_token = tokens[-1]
-    core_tokens = tokens[:-1]
+    matches_index, _, goals_per_match_index = _locate_numeric_columns(tokens)
 
-    match_index = next((index for index, token in enumerate(core_tokens) if token.isdigit()), None)
-    if match_index is None:
-        raise ValueError("Unable to locate matches played in scorer row.")
-
-    matches_token = core_tokens[match_index]
-    goals_tokens = core_tokens[match_index + 1 :]
-    identity_tokens = core_tokens[:match_index]
+    identity_tokens = tokens[:matches_index]
+    matches_token = tokens[matches_index]
+    goals_tokens = tokens[matches_index + 1 : goals_per_match_index]
+    goals_per_match_token = tokens[goals_per_match_index]
 
     player, team, group = _split_identity_tokens(identity_tokens)
     if group is None:
@@ -362,6 +358,41 @@ def _split_player_and_team(tokens: Sequence[str]) -> Tuple[List[str], List[str]]
     return player_tokens, team_tokens
 
 
+def _locate_numeric_columns(tokens: Sequence[str]) -> Tuple[int, int, int]:
+    """Return the indexes describing matches, goals and ratio columns."""
+
+    numeric_indexes = [
+        (index, token)
+        for index, token in enumerate(tokens)
+        if _parse_float_token(token) is not None
+    ]
+
+    if len(numeric_indexes) < 3:
+        raise ValueError("Unable to locate numeric statistics in scorer row.")
+
+    goals_per_match_index = numeric_indexes[-1][0]
+    goals_index = _find_last_integer_index(numeric_indexes[:-1])
+    if goals_index is None:
+        raise ValueError("Unable to locate total goals in scorer row.")
+
+    matches_index = _find_last_integer_index(
+        [item for item in numeric_indexes[:-1] if item[0] < goals_index]
+    )
+    if matches_index is None:
+        raise ValueError("Unable to locate matches played in scorer row.")
+
+    return matches_index, goals_index, goals_per_match_index
+
+
+def _find_last_integer_index(indexed_tokens: Sequence[Tuple[int, str]]) -> Optional[int]:
+    """Return the index of the last integer token within the provided list."""
+
+    for index, token in reversed(indexed_tokens):
+        if _parse_int_token(token) is not None:
+            return index
+    return None
+
+
 def _extract_goals_total(tokens: Sequence[str]) -> Optional[int]:
     """Return the total goals recorded within the row."""
 
@@ -412,8 +443,14 @@ def _parse_float_token(token: str) -> Optional[float]:
 def _parse_int_token(token: str) -> Optional[int]:
     """Return an integer converted from the provided token."""
 
+    sanitized = _sanitize_numeric_token(token).strip()
+    sanitized = sanitized.rstrip(".,")
+    sanitized = sanitized.rstrip("ºª")
+    if not sanitized or not sanitized.isdigit():
+        return None
+
     try:
-        return int(token)
+        return int(sanitized)
     except ValueError:
         return None
 
