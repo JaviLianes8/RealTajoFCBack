@@ -309,3 +309,51 @@ def test_parser_handles_inline_matchdays_and_multiple_matches_per_line() -> None
     assert second_match.matchday == 10
     assert second_match.is_home is False
     assert second_match.opponent == "RACING ARANJUEZ"
+
+
+def test_parser_supports_multiline_team_names_in_participants_section() -> None:
+    """Ensure the parser recognises team names split across multiple lines."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Calendario de Competiciones",
+                    "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+                    "Equipos Participantes",
+                    "1.- LA VESPA TAPAS-CLUB ATLETICO DE",
+                    "ARANJUEZ (1001)",
+                    "2.- AMG-ASESORIA JURIDICA- EXCAVACIONES",
+                    "TAJO (1002)",
+                    "3.- IRT ARANJUEZ (1003)",
+                    "4.- REAL TAJO (1004)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 1 (11-10-2025)",
+                    "LA VESPA TAPAS-CLUB ATLETICO DE",
+                    "ARANJUEZ - REAL TAJO",
+                    "Jornada 2 (18-10-2025)",
+                    "REAL TAJO - AMG-ASESORIA JURIDICA- EXCAVACIONES",
+                    "TAJO",
+                    "Jornada 3 (25-10-2025)",
+                    "IRT ARANJUEZ - REAL TAJO",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"multiline")
+
+    opponents = {match.opponent for match in calendar.matches}
+    assert opponents == {
+        "LA VESPA TAPAS-CLUB ATLETICO DE ARANJUEZ",
+        "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO",
+        "IRT ARANJUEZ",
+    }

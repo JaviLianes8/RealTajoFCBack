@@ -83,7 +83,7 @@ def _extract_competition_and_season(lines: Sequence[str]) -> Tuple[Optional[str]
     return None, None
 
 
-TEAM_LINE_PATTERN = re.compile(r"^(\d+)\.\-\s+(.+?)\s*(?:\(\d+\))?$")
+TEAM_LINE_PATTERN = re.compile(r"^(\d+)\.\-\s+(.+)$")
 
 
 def _extract_team_names(lines: Sequence[str]) -> List[str]:
@@ -91,19 +91,49 @@ def _extract_team_names(lines: Sequence[str]) -> List[str]:
 
     team_names: List[str] = []
     capture = False
+    current_entry: List[str] = []
     for line in lines:
         if not capture and line.lower().startswith("equipos participantes"):
             capture = True
             continue
         if capture:
             if line.lower().startswith("delegacion"):
+                if current_entry:
+                    _append_team_name(team_names, current_entry)
                 break
             match = TEAM_LINE_PATTERN.match(line)
             if match:
-                team_names.append(match.group(2).strip())
+                if current_entry:
+                    _append_team_name(team_names, current_entry)
+                current_entry = [match.group(2).strip()]
+                if _looks_like_complete_entry(current_entry[-1]):
+                    _append_team_name(team_names, current_entry)
+                    current_entry = []
+            elif current_entry:
+                current_entry.append(line.strip())
+                if _looks_like_complete_entry(current_entry[-1]):
+                    _append_team_name(team_names, current_entry)
+                    current_entry = []
+    if current_entry:
+        _append_team_name(team_names, current_entry)
     if "REAL TAJO" not in team_names:
         team_names.append("REAL TAJO")
     return team_names
+
+
+def _looks_like_complete_entry(line: str) -> bool:
+    """Return ``True`` when ``line`` finishes a team entry."""
+
+    return bool(re.search(r"\(\d+\)\s*$", line))
+
+
+def _append_team_name(team_names: List[str], parts: List[str]) -> None:
+    """Append the normalized team name composed of ``parts`` into ``team_names``."""
+
+    raw_name = " ".join(parts).strip()
+    normalized = re.sub(r"\s*\(\d+\)\s*$", "", raw_name).strip()
+    if normalized:
+        team_names.append(normalized)
 
 
 def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) -> List[RealTajoMatch]:
