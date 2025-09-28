@@ -149,9 +149,12 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
     current_stage: Optional[str] = None
     current_matchday: Optional[int] = None
     current_date: Optional[datetime] = None
+    pending_matchday: Optional[int] = None
     buffer = ""
 
     jornada_pattern = re.compile(r"Jornada\s+(\d+)\s*\((\d{2}-\d{2}-\d{4})\)")
+    jornada_without_date_pattern = re.compile(r'Jornada\s+(\d+)(?!\s*\()')
+    date_pattern = re.compile(r"\((\d{2}-\d{2}-\d{4})\)")
 
     for line in lines:
         lower_line = line.lower()
@@ -169,12 +172,36 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
         if jornada_match:
             current_matchday = int(jornada_match.group(1))
             current_date = datetime.strptime(jornada_match.group(2), "%d-%m-%Y")
+            pending_matchday = None
             buffer = ""
             remaining = line[jornada_match.end() :].strip()
             if remaining:
                 buffer = remaining
+        else:
+            jornada_without_date_match = jornada_without_date_pattern.search(line)
+            if jornada_without_date_match:
+                current_matchday = int(jornada_without_date_match.group(1))
+                current_date = None
+                pending_matchday = current_matchday
+                buffer = ""
+                remaining = line[jornada_without_date_match.end() :].strip()
+                if remaining:
+                    buffer = remaining
 
-        if current_stage is None or current_matchday is None or current_date is None:
+        date_only_line = False
+
+        if pending_matchday is not None and current_date is None:
+            date_match = date_pattern.search(line)
+            if date_match:
+                current_date = datetime.strptime(date_match.group(1), "%d-%m-%Y")
+                pending_matchday = None
+                trailing = line[date_match.end() :].strip()
+                if trailing:
+                    buffer = f"{buffer} {trailing}".strip() if buffer else trailing
+                if line.strip() == date_match.group(0):
+                    date_only_line = True
+
+        if current_stage is None or current_matchday is None or current_date is None or date_only_line:
             continue
 
         if line.startswith("Calendario de Competiciones") or line.startswith("DELEGACION"):
@@ -187,7 +214,9 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
         while buffer:
             parsed_match = _parse_match(buffer, sorted_names)
             if parsed_match is None:
-                break
+                parsed_match = _parse_real_tajo_fallback_match(buffer, real_tajo_name, sorted_names)
+                if parsed_match is None:
+                    break
 
             home_team, away_team, consumed = parsed_match
             buffer = buffer[consumed:].lstrip(" -–—,.\n")
@@ -244,6 +273,72 @@ def _parse_match(text: str, team_names: Sequence[str]) -> Optional[Tuple[str, st
             return home_team, away_team, consumed
 
     return None
+
+
+def _parse_real_tajo_fallback_match(
+    text: str, real_tajo_name: str, team_names: Sequence[str]
+) -> Optional[Tuple[str, str, int]]:
+    """Fallback extraction that isolates fixtures involving Real Tajo using dash separators."""
+
+    normalized_real_tajo = _normalize_for_matching(real_tajo_name)
+    normalized_team_names = [
+        _normalize_for_matching(name) for name in team_names if name
+    ]
+
+    for index, character in enumerate(text):
+        if character not in "-–—":
+            continue
+
+        left_raw = text[:index]
+        right_raw = text[index + 1 :]
+
+        home_candidate = _sanitize_team_segment(left_raw)
+        away_candidate = _sanitize_team_segment(right_raw)
+
+        if not home_candidate or not away_candidate:
+            continue
+
+        normalized_home = _normalize_for_matching(home_candidate)
+        normalized_away = _normalize_for_matching(away_candidate)
+
+        home_is_real_tajo = normalized_home == normalized_real_tajo
+        away_is_real_tajo = normalized_away == normalized_real_tajo
+
+        if not home_is_real_tajo and not away_is_real_tajo:
+            continue
+
+        opponent = normalized_away if home_is_real_tajo else normalized_home
+        if _matches_known_team_prefix(opponent, normalized_team_names):
+            return None
+
+        return home_candidate, away_candidate, len(text)
+
+    return None
+
+
+def _sanitize_team_segment(segment: str) -> str:
+    """Trim competition markers and extra punctuation from a potential team segment."""
+
+    cleaned = segment.strip()
+    cleaned = cleaned.strip("-–—,.;")
+    cleaned = re.sub(r"\(\d{2}-\d{2}-\d{4}\).*", "", cleaned)
+    cleaned = re.sub(r"Jornada\s+\d+.*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(Primera|Segunda)\s+Vuelta.*", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def _matches_known_team_prefix(
+    normalized_candidate: str, normalized_team_names: Sequence[str]
+) -> bool:
+    """Return ``True`` when ``normalized_candidate`` is a prefix of a known team."""
+
+    if not normalized_candidate:
+        return False
+
+    return any(
+        team.startswith(normalized_candidate) and team != normalized_candidate
+        for team in normalized_team_names
+    )
 
 
 def _match_prefix(text: str, candidate: str) -> Optional[int]:

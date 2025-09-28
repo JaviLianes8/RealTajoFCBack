@@ -474,3 +474,85 @@ def test_parser_matches_teams_even_when_schedule_uses_accents() -> None:
         (2, "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO", True),
         (3, "IRT ARANJUEZ", False),
     ]
+
+
+def test_parser_recovers_matches_when_participants_are_incomplete() -> None:
+    """Ensure Real Tajo fixtures are still parsed even if opponents are missing from participants."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Calendario de Competiciones",
+                    "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+                    "Equipos Participantes",
+                    "1.- REAL TAJO (1048)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 1 (11-10-2025)",
+                    "AMERICA - REAL TAJO",
+                    "Jornada 2 (18-10-2025)",
+                    "REAL TAJO - AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"fallback-teams")
+
+    assert [
+        (match.matchday, match.opponent, match.is_home)
+        for match in calendar.matches
+    ] == [
+        (1, "AMERICA", False),
+        (2, "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO", True),
+    ]
+
+
+def test_parser_understands_matchdays_with_separated_dates() -> None:
+    """Ensure the parser links matchdays to dates even when they are split across lines."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Equipos Participantes",
+                    "1.- REAL TAJO (1048)",
+                    "2.- LA VESPA TAPAS-CLUB ATLETICO DE ARANJUEZ (1028)",
+                    "3.- CELTIC C.F. (1024)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 13",
+                    "(14-03-2026)",
+                    "REAL TAJO - LA VESPA TAPAS-CLUB ATLETICO DE ARANJUEZ",
+                    "Jornada 14",
+                    "(21-03-2026)",
+                    "CELTIC C.F. - REAL TAJO",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"split-date")
+
+    assert [
+        (match.matchday, match.match_date, match.opponent, match.is_home)
+        for match in calendar.matches
+    ] == [
+        (13, date(2026, 3, 14), "LA VESPA TAPAS-CLUB ATLETICO DE ARANJUEZ", True),
+        (14, date(2026, 3, 21), "CELTIC C.F.", False),
+    ]
