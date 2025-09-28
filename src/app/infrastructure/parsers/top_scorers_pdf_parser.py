@@ -10,7 +10,6 @@ from app.domain.models.document import ParsedDocument
 from app.domain.models.top_scorers import TopScorerEntry, TopScorersTable
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 
-_ROW_END_PATTERN = re.compile(r"^\d+,\d+$")
 _PENALTY_PATTERN = re.compile(r"\((\d+)\s+de\s+penalti", re.IGNORECASE)
 _GROUP_KEYWORDS = {
     "grupo",
@@ -203,10 +202,13 @@ def _extract_row_groups(lines: Sequence[str]) -> List[Tuple[List[str], List[str]
         current_lines.append(line)
         current_tokens.extend(tokens)
 
-        if _ROW_END_PATTERN.match(tokens[-1]):
+        if _is_row_terminator(tokens[-1]):
             groups.append((current_tokens, current_lines))
             current_tokens = []
             current_lines = []
+
+    if current_tokens and current_lines:
+        groups.append((current_tokens, current_lines))
 
     return groups
 
@@ -389,7 +391,17 @@ def _extract_penalty(tokens: Sequence[str]) -> Optional[int]:
 def _parse_float_token(token: str) -> Optional[float]:
     """Return a float converted from a numeric token using comma decimals."""
 
-    normalized = token.replace(".", "").replace(",", ".")
+    normalized = token.strip()
+    if not normalized:
+        return None
+
+    normalized = normalized.replace(" ", "")
+
+    if "," in normalized and "." in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    elif "," in normalized:
+        normalized = normalized.replace(",", ".")
+
     try:
         return float(normalized)
     except ValueError:
@@ -409,4 +421,11 @@ def _goals_value(entry: TopScorerEntry) -> int:
     """Return a sortable goal value prioritising rows with available data."""
 
     return entry.goals_total if entry.goals_total is not None else -1
+
+
+def _is_row_terminator(token: str) -> bool:
+    """Return ``True`` when the provided token marks the end of a scorer row."""
+
+    numeric_token = token.rstrip(";:,.()[]{}")
+    return _parse_float_token(numeric_token) is not None
 

@@ -60,3 +60,24 @@ def test_top_scorers_parser_extracts_entries() -> None:
     assert second.team == "NEW COTTON MEKASO MCS"
     assert second.penalty_goals == 1
 
+
+def test_top_scorers_parser_accepts_varied_row_terminators() -> None:
+    """The parser should recognise scorer rows with diverse numeric endings."""
+
+    lines = [
+        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
+        "Jugador Equipo Grupo Partidos",
+        "BOCANEGRA CAIPA, JOHN DAIRO CAFETERIA LA TACITA 2ª AFICIONADOS",
+        "F-11 2 4 2.0000;",
+        "ARRIAGA MARTINEZ, MANUEL NEW COTTON MEKASO MCS 2ª AFICIONADOS",
+        "F-11 2 4 (1 de penalti) 2",
+    ]
+
+    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
+
+    table = parser.parse(b"pdf-bytes")
+
+    assert len(table.scorers) == 2
+    assert table.scorers[0].goals_per_match == 2.0
+    assert table.scorers[1].goals_per_match == 2.0
+
