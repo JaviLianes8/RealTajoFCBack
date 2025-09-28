@@ -439,7 +439,7 @@ def _is_row_terminator(token: str, accumulated_tokens: Sequence[str]) -> bool:
     ]
     numeric_count = sum(1 for value in numeric_tokens if value is not None)
 
-    return numeric_count >= 2
+    return numeric_count >= 3
 
 
 def _sanitize_numeric_token(token: str) -> str:
