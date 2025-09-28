@@ -311,6 +311,41 @@ def test_parser_handles_inline_matchdays_and_multiple_matches_per_line() -> None
     assert second_match.opponent == "RACING ARANJUEZ"
 
 
+def test_parser_accepts_matches_without_spaces_around_separator() -> None:
+    """Ensure fixtures using tight hyphen separators are still detected."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Equipos Participantes",
+                    "1.- REAL SPORT (1047)",
+                    "2.- REAL TAJO (1048)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 2 (18-10-2025)",
+                    "REAL SPORT-REAL TAJO",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"compact-separator")
+
+    assert len(calendar.matches) == 1
+    match = calendar.matches[0]
+    assert match.matchday == 2
+    assert match.opponent == "REAL SPORT"
+    assert match.is_home is False
+
+
 def test_parser_supports_multiline_team_names_in_participants_section() -> None:
     """Ensure the parser recognises team names split across multiple lines."""
 

@@ -221,7 +221,7 @@ MATCH_SEPARATOR_PATTERN = re.compile(r"\s*-\s*")
 def _parse_match(text: str, team_names: Sequence[str]) -> Optional[Tuple[str, str, int]]:
     """Attempt to extract the next match from ``text`` splitting by known team names."""
 
-    if " - " not in text:
+    if "-" not in text:
         return None
 
     for home_team in team_names:
