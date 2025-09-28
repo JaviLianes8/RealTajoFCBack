@@ -202,7 +202,7 @@ def _extract_row_groups(lines: Sequence[str]) -> List[Tuple[List[str], List[str]
         current_lines.append(line)
         current_tokens.extend(tokens)
 
-        if _is_row_terminator(tokens[-1]):
+        if _is_row_terminator(tokens[-1], current_tokens):
             groups.append((current_tokens, current_lines))
             current_tokens = []
             current_lines = []
@@ -391,7 +391,7 @@ def _extract_penalty(tokens: Sequence[str]) -> Optional[int]:
 def _parse_float_token(token: str) -> Optional[float]:
     """Return a float converted from a numeric token using comma decimals."""
 
-    normalized = token.strip()
+    normalized = _sanitize_numeric_token(token)
     if not normalized:
         return None
 
@@ -423,9 +423,26 @@ def _goals_value(entry: TopScorerEntry) -> int:
     return entry.goals_total if entry.goals_total is not None else -1
 
 
-def _is_row_terminator(token: str) -> bool:
+def _is_row_terminator(token: str, accumulated_tokens: Sequence[str]) -> bool:
     """Return ``True`` when the provided token marks the end of a scorer row."""
 
-    numeric_token = token.rstrip(";:,.()[]{}")
-    return _parse_float_token(numeric_token) is not None
+    candidate = _sanitize_numeric_token(token)
+    if not candidate:
+        return False
+
+    if _parse_float_token(candidate) is None:
+        return False
+
+    numeric_tokens = [
+        _parse_float_token(_sanitize_numeric_token(item)) for item in accumulated_tokens
+    ]
+    numeric_count = sum(1 for value in numeric_tokens if value is not None)
+
+    return numeric_count >= 2
+
+
+def _sanitize_numeric_token(token: str) -> str:
+    """Return a numeric candidate removing trailing row delimiters."""
+
+    return token.strip().rstrip(";:()[]{}")
 

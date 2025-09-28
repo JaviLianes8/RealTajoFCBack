@@ -81,3 +81,24 @@ def test_top_scorers_parser_accepts_varied_row_terminators() -> None:
     assert table.scorers[0].goals_per_match == 2.0
     assert table.scorers[1].goals_per_match == 2.0
 
+
+def test_top_scorers_parser_accepts_dot_decimal_row_terminator() -> None:
+    """The parser should finish rows when goals per match use dot decimals."""
+
+    lines = [
+        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
+        "Jugador Equipo Grupo Partidos",
+        "BOCANEGRA CAIPA, JOHN DAIRO CAFETERIA LA TACITA 2ª AFICIONADOS",
+        "F-11 2 4 1.5000",
+        "ARRIAGA MARTINEZ, MANUEL NEW COTTON MEKASO MCS 2ª AFICIONADOS",
+        "F-11 2 4 2",
+    ]
+
+    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
+
+    table = parser.parse(b"pdf-bytes")
+
+    assert len(table.scorers) == 2
+    assert table.scorers[0].goals_per_match == 1.5
+    assert table.scorers[1].goals_per_match == 2.0
+
