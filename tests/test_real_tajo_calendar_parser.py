@@ -556,3 +556,79 @@ def test_parser_understands_matchdays_with_separated_dates() -> None:
         (13, date(2026, 3, 14), "LA VESPA TAPAS-CLUB ATLETICO DE ARANJUEZ", True),
         (14, date(2026, 3, 21), "CELTIC C.F.", False),
     ]
+
+
+def test_parser_ignores_noise_and_recovers_real_tajo_pairings() -> None:
+    """Ensure noisy jornada lines still yield the correct Real Tajo fixture."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Calendario de Competiciones",
+                    "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+                    "Equipos Participantes",
+                    "1.- REAL SPORT (1047)",
+                    "2.- REAL TAJO (1048)",
+                    "3.- IRT ARANJUEZ (1049)",
+                    "4.- AMERICA (1052)",
+                    "5.- AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO (1027)",
+                    "6.- CELTIC C.F. (1024)",
+                    "7.- ALBIRROJA (1050)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 1 (11-10-2025)",
+                    "REAL SPORT - REAL TAJO",
+                    "Jornada 2 (18-10-2025)",
+                    "Descansa - ALBIRROJA REAL TAJO – IRT ARANJUEZ RACING ARANJUEZ – CELTIC C.F.",
+                    "Jornada 4",
+                    "(08-11-2025)",
+                    "REAL TAJO – AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO Descansa - AMERICA",
+                    "Jornada 8 (10-01-2026)",
+                    "Descansa - ALBIRROJA AMERICA – REAL TAJO CELTIC C.F. – REAL SPORT",
+                    "Segunda Vuelta",
+                    "Jornada 10 (31-01-2026)",
+                    "REAL TAJO – REAL SPORT Descansa - ALBIRROJA",
+                    "Jornada 11 (14-02-2026)",
+                    "AMERICA – CELTIC C.F. IRT ARANJUEZ – REAL TAJO Descansa - ALBIRROJA",
+                    "Jornada 13 (14-03-2026)",
+                    "Descansa - ALBIRROJA AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO – REAL TAJO",
+                    "Jornada 17 (09-05-2026)",
+                    "IRT ARANJUEZ – CELTIC C.F. REAL TAJO – AMERICA Descansa - ALBIRROJA",
+                ],
+            ),
+            DocumentPage(
+                number=3,
+                content=[
+                    "Datos de interés de los equipos participantes",
+                    "REAL TAJO Contacto: JUAN",
+                    "Teléfono: 620763145",
+                    "Primera Equipación",
+                    "Camiseta: Azul Pantalón: Azul Medias: Blancas",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"noisy-lines")
+
+    assert [
+        (match.matchday, match.match_date, match.opponent, match.is_home)
+        for match in calendar.matches
+    ] == [
+        (1, date(2025, 10, 11), "REAL SPORT", False),
+        (2, date(2025, 10, 18), "IRT ARANJUEZ", True),
+        (4, date(2025, 11, 8), "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO", True),
+        (8, date(2026, 1, 10), "AMERICA", False),
+        (10, date(2026, 1, 31), "REAL SPORT", True),
+        (11, date(2026, 2, 14), "IRT ARANJUEZ", False),
+        (13, date(2026, 3, 14), "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO", False),
+        (17, date(2026, 5, 9), "AMERICA", True),
+    ]
