@@ -59,12 +59,18 @@ class Settings:
 
 
 def get_settings() -> Settings:
-    """Provide the default application settings."""
+    """Provide application settings, adapting storage for Azure deployments."""
 
     settings = Settings()
     upload_dir = os.getenv("UPLOAD_DIR")
-    if not upload_dir:
-        return settings
+    if upload_dir:
+        data_dir = Path(upload_dir).expanduser()
+        return replace(settings, data_dir=data_dir)
 
-    data_dir = Path(upload_dir).expanduser()
-    return replace(settings, data_dir=data_dir)
+    if os.getenv("WEBSITE_INSTANCE_ID"):
+        persistent_dir = Path(
+            os.getenv("APP_DATA_DIR", "/home/site/data")
+        ).expanduser()
+        return replace(settings, data_dir=persistent_dir)
+
+    return settings
