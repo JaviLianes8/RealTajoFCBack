@@ -1,7 +1,8 @@
 """Application configuration helpers."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Tuple
 
@@ -60,4 +61,10 @@ class Settings:
 def get_settings() -> Settings:
     """Provide the default application settings."""
 
-    return Settings()
+    settings = Settings()
+    upload_dir = os.getenv("UPLOAD_DIR")
+    if not upload_dir:
+        return settings
+
+    data_dir = Path(upload_dir).expanduser()
+    return replace(settings, data_dir=data_dir)
