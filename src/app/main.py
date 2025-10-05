@@ -18,6 +18,12 @@ from app.application.process_classification import (
     ProcessClassificationUseCase,
     RetrieveClassificationUseCase,
 )
+from app.application.process_matchday import (
+    MatchdayParser,
+    ProcessMatchdayUseCase,
+    RetrieveLatestMatchdayUseCase,
+    RetrieveMatchdayUseCase,
+)
 from app.application.process_document import (
     DocumentParser,
     ProcessDocumentUseCase,
@@ -36,12 +42,14 @@ from app.application.process_top_scorers import (
 from app.config.settings import get_settings
 from app.domain.repositories.classification_repository import ClassificationRepository
 from app.domain.repositories.document_repository import DocumentRepository
+from app.domain.repositories.matchday_repository import MatchdayRepository
 from app.domain.repositories.real_tajo_calendar_repository import (
     RealTajoCalendarRepository,
 )
 from app.domain.repositories.top_scorer_repository import TopScorersRepository
 from app.domain.services.classification_extractor import ClassificationExtractorService
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
+from app.infrastructure.parsers.matchday_pdf_parser import MatchdayPdfParser
 from app.infrastructure.repositories.json_classification_repository import (
     JsonClassificationRepository,
 )
@@ -49,6 +57,9 @@ from app.infrastructure.parsers.real_tajo_calendar_parser import (
     RealTajoCalendarPdfParser,
 )
 from app.infrastructure.repositories.json_file_repository import JsonFileRepository
+from app.infrastructure.repositories.json_matchday_repository import (
+    JsonMatchdayRepository,
+)
 from app.infrastructure.repositories.json_real_tajo_calendar_repository import (
     JsonRealTajoCalendarRepository,
 )
@@ -66,6 +77,8 @@ def create_app(
     real_tajo_repo: RealTajoCalendarRepository | None = None,
     top_scorers_parser: TopScorersParser | None = None,
     top_scorers_repo: TopScorersRepository | None = None,
+    matchday_parser: MatchdayParser | None = None,
+    matchday_repo: MatchdayRepository | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application instance."""
 
@@ -85,6 +98,11 @@ def create_app(
         top_scorers_repo
         if top_scorers_repo is not None
         else JsonTopScorersRepository(settings.top_scorers_path)
+    )
+    matchday_repository = (
+        matchday_repo
+        if matchday_repo is not None
+        else JsonMatchdayRepository(settings.matchdays_directory)
     )
 
     classification_extractor = ClassificationExtractorService()
@@ -110,6 +128,14 @@ def create_app(
         scorers_repository,
     )
     top_scorers_retriever = RetrieveTopScorersUseCase(scorers_repository)
+
+    matchday_parser_service = matchday_parser or MatchdayPdfParser(pdf_parser)
+    matchday_processor = ProcessMatchdayUseCase(
+        matchday_parser_service,
+        matchday_repository,
+    )
+    matchday_retriever = RetrieveMatchdayUseCase(matchday_repository)
+    latest_matchday_retriever = RetrieveLatestMatchdayUseCase(matchday_repository)
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
@@ -234,6 +260,39 @@ def create_app(
                 detail="No processed top scorers document available.",
             )
         return table.to_dict()
+
+    @api_router.put("/matchdays", status_code=status.HTTP_200_OK)
+    async def upload_matchday(response: Response, file: UploadFile = File(...)) -> dict:
+        """Parse and persist the uploaded matchday PDF, returning its JSON form."""
+
+        pdf_bytes = await _read_pdf_bytes(file, settings.max_upload_size_bytes)
+        matchday = _execute_processor(matchday_processor.execute, pdf_bytes)
+        response.headers["Location"] = f"{settings.api_prefix}/matchdays/{matchday.number}"
+        return matchday.to_dict()
+
+    @api_router.get("/matchdays/last", status_code=status.HTTP_200_OK)
+    async def get_latest_matchday() -> dict:
+        """Retrieve the most recently processed matchday as JSON."""
+
+        matchday = latest_matchday_retriever.execute()
+        if matchday is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed matchdays available.",
+            )
+        return matchday.to_dict()
+
+    @api_router.get("/matchdays/{number}", status_code=status.HTTP_200_OK)
+    async def get_matchday(number: int) -> dict:
+        """Retrieve the stored matchday identified by ``number`` as JSON."""
+
+        matchday = matchday_retriever.execute(number)
+        if matchday is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed matchday found for the requested number.",
+            )
+        return matchday.to_dict()
 
     app.include_router(api_router)
     return app
