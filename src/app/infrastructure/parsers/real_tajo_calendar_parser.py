@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from app.application.process_document import DocumentParser
@@ -121,6 +122,16 @@ def _extract_team_names(lines: Sequence[str]) -> List[str]:
     return team_names
 
 
+@dataclass(frozen=True)
+class _ParsedMatch:
+    """Represent the pairing located in the document alongside its origin line."""
+
+    home_team: str
+    away_team: str
+    source_index: Optional[int]
+    source_text: str
+
+
 def _looks_like_complete_entry(line: str) -> bool:
     """Return ``True`` when ``line`` finishes a team entry."""
 
@@ -170,22 +181,29 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
             jornada_lines = []
             return
 
-        parsed = _parse_real_tajo_match_from_lines(
-            jornada_lines, sorted_names, real_tajo_name
+        jornada_snapshot = list(jornada_lines)
+        parsed_match = _parse_real_tajo_match_from_lines(
+            jornada_snapshot, sorted_names, real_tajo_name
         )
         jornada_lines = []
-        if parsed is None:
+        if parsed_match is None:
             return
 
-        home_team, away_team = parsed
+        home_team, away_team = parsed_match.home_team, parsed_match.away_team
         opponent = away_team if home_team == real_tajo_name else home_team
+        detail_date, kickoff_time, venue = _extract_match_details(
+            jornada_snapshot, parsed_match
+        )
+        match_date_value = detail_date or current_date.date()
         matches.append(
             RealTajoMatch(
                 stage=current_stage,
                 matchday=current_matchday,
-                match_date=current_date.date(),
+                match_date=match_date_value,
                 opponent=opponent,
                 is_home=home_team == real_tajo_name,
+                kickoff_time=kickoff_time,
+                venue=venue,
             )
         )
 
@@ -264,23 +282,25 @@ def _parse_real_tajo_match_from_lines(
     jornada_lines: Sequence[str],
     team_names: Sequence[str],
     real_tajo_name: str,
-) -> Optional[Tuple[str, str]]:
+) -> Optional[_ParsedMatch]:
     """Find the Real Tajo fixture within the accumulated jornada lines."""
 
     if not jornada_lines:
         return None
 
     combined = " ".join(jornada_lines).strip()
-    candidates: List[str] = []
+    candidates: List[Tuple[str, Optional[int]]] = []
     if combined:
-        candidates.append(combined)
+        candidates.append((combined, None))
     candidates.extend(
-        line for line in jornada_lines if "REAL TAJO" in line.upper()
+        (line, index)
+        for index, line in enumerate(jornada_lines)
+        if "REAL TAJO" in line.upper()
     )
 
     seen_candidates: set[str] = set()
-    for candidate in candidates:
-        normalized_candidate = candidate.strip()
+    for candidate_text, candidate_index in candidates:
+        normalized_candidate = candidate_text.strip()
         if not normalized_candidate or normalized_candidate in seen_candidates:
             continue
         seen_candidates.add(normalized_candidate)
@@ -288,9 +308,144 @@ def _parse_real_tajo_match_from_lines(
             normalized_candidate, team_names, real_tajo_name
         )
         if parsed is not None:
-            return parsed
+            home_team, away_team = parsed
+            return _ParsedMatch(
+                home_team=home_team,
+                away_team=away_team,
+                source_index=candidate_index,
+                source_text=normalized_candidate,
+            )
+
+        fallback = _parse_real_tajo_match_with_unknown_team(
+            normalized_candidate, real_tajo_name
+        )
+        if fallback is not None:
+            home_team, away_team = fallback
+            return _ParsedMatch(
+                home_team=home_team,
+                away_team=away_team,
+                source_index=candidate_index,
+                source_text=normalized_candidate,
+            )
 
     return None
+
+
+def _extract_match_details(
+    jornada_lines: Sequence[str], parsed_match: _ParsedMatch
+) -> Tuple[Optional[date], Optional[str], Optional[str]]:
+    """Extract detailed scheduling information for the parsed Real Tajo match."""
+
+    if not jornada_lines:
+        return None, None, None
+
+    context_indices: List[int] = []
+    if parsed_match.source_index is not None:
+        start = max(0, parsed_match.source_index - 1)
+        end = min(len(jornada_lines), parsed_match.source_index + 3)
+        context_indices = list(range(start, end))
+    else:
+        context_indices = list(range(len(jornada_lines)))
+
+    detail_date: Optional[date] = None
+    kickoff_time: Optional[str] = None
+    venue: Optional[str] = None
+
+    for index in context_indices:
+        line = jornada_lines[index]
+        if detail_date is None:
+            detail_date = _extract_date_from_text(line)
+        if kickoff_time is None:
+            kickoff_time = _extract_time_from_text(line)
+        if venue is None:
+            venue = _extract_field_from_text(line)
+        if detail_date and kickoff_time and venue:
+            break
+
+    if detail_date and kickoff_time and venue:
+        return detail_date, kickoff_time, venue
+
+    combined_text = " ".join(jornada_lines[index] for index in context_indices)
+    if detail_date is None:
+        detail_date = _extract_date_from_text(combined_text)
+    if kickoff_time is None:
+        kickoff_time = _extract_time_from_text(combined_text)
+    if venue is None:
+        venue = _extract_field_from_text(combined_text)
+
+    return detail_date, kickoff_time, venue
+
+
+DATE_WITH_LABEL_PATTERN = re.compile(
+    r"(?:FECHA|Fecha)[^0-9]*(\d{2}[-/]\d{2}[-/]\d{4})"
+)
+GENERIC_DATE_PATTERN = re.compile(r"(\d{2}[-/]\d{2}[-/]\d{4})")
+TIME_WITH_LABEL_PATTERN = re.compile(r"(?:HORA|Hora)[^0-9]*(\d{1,2}[:.]\d{2})")
+GENERIC_TIME_PATTERN = re.compile(r"(\d{1,2}[:.]\d{2})")
+FIELD_WITH_LABEL_PATTERN = re.compile(
+    r"(?:CAMPO|Campo)\s*[:\-]?\s*(.+?)(?=(?:\s+(?:Fecha|FECHA|Hora|HORA|Campo|CAMPO)\b)|$)",
+    re.IGNORECASE,
+)
+
+
+def _extract_date_from_text(text: str) -> Optional[date]:
+    """Return the first date found inside ``text`` if any."""
+
+    match = DATE_WITH_LABEL_PATTERN.search(text)
+    if match is None:
+        match = GENERIC_DATE_PATTERN.search(text)
+    if match is None:
+        return None
+
+    raw_value = match.group(1).replace("/", "-")
+    try:
+        return datetime.strptime(raw_value, "%d-%m-%Y").date()
+    except ValueError:
+        return None
+
+
+def _extract_time_from_text(text: str) -> Optional[str]:
+    """Return the first time expression encountered within ``text``."""
+
+    match = TIME_WITH_LABEL_PATTERN.search(text)
+    if match is None:
+        match = GENERIC_TIME_PATTERN.search(text)
+    if match is None:
+        return None
+
+    return _normalize_time_value(match.group(1))
+
+
+def _extract_field_from_text(text: str) -> Optional[str]:
+    """Extract the venue field if referenced in the provided ``text``."""
+
+    match = FIELD_WITH_LABEL_PATTERN.search(text)
+    if match is not None:
+        candidate = match.group(1).strip(" -–—,;.")
+        return candidate or None
+
+    time_match = TIME_WITH_LABEL_PATTERN.search(text) or GENERIC_TIME_PATTERN.search(text)
+    if time_match is not None:
+        trailing = text[time_match.end() :].strip()
+        trailing = re.sub(r"(?:FECHA|Fecha|HORA|Hora).*", "", trailing)
+        trailing = trailing.strip(" -–—,;.")
+        if trailing and not trailing.upper().startswith("JORNADA"):
+            return trailing
+
+    return None
+
+
+def _normalize_time_value(raw_time: str) -> str:
+    """Normalize the textual representation of a kickoff time."""
+
+    sanitized = raw_time.replace(".", ":").replace("h", "").replace("H", "").strip()
+    match = re.match(r"(\d{1,2}):(\d{2})", sanitized)
+    if match is None:
+        return sanitized
+
+    hour, minute = match.groups()
+    normalized_hour = f"{int(hour):02d}"
+    return f"{normalized_hour}:{minute}"
 
 
 def _parse_real_tajo_match_from_text(

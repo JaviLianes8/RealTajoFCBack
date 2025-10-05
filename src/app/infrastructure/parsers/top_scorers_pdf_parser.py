@@ -24,9 +24,11 @@ from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 
 # ---------- regex helpers ----------
 _RE_SPACES = re.compile(r"\s+")
-_RE_RATIO_LAST = re.compile(r"(\d+,\d+)(?!.*\d+,\d+)")
+_RE_RATIO_LAST = re.compile(r"(\d+[,.]\d+)(?!.*\d+[,.]\d+)")
 _RE_INT = re.compile(r"\d+")
 _RE_PEN = re.compile(r"\(\s*(\d+)\s+de\s+penalti\s*\)", re.IGNORECASE)
+_RE_ORDINAL_TOKEN = re.compile(r"\d+[ºª]")
+_RE_NAME_COMMA = re.compile(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ],[^0-9]")
 
 _TEAM_HINTS = {
     "REAL","UNION","UNIÓN","CLUB","ATLETICO","ATLÉTICO","DEPORTIVO","SPORTING",
@@ -44,7 +46,12 @@ _FOOTER_PREFIXES = ("DELEGACION", "DELEGACIÓN", "R.F.F.M", "RFFM", "FEDERACION"
 
 def _norm(text: str) -> str:
     """Collapse exotic/multiple spaces."""
-    return _RE_SPACES.sub(" ", text.replace("\u00A0"," ").replace("\u2007"," ").replace("\u202F"," ")).strip()
+    normalized = _RE_SPACES.sub(
+        " ", text.replace("\u00A0", " ").replace("\u2007", " ").replace("\u202F", " ")
+    ).strip()
+    normalized = re.sub(r"(?<=\d)\s+(?=[ºª])", "", normalized)
+    normalized = re.sub(r"(?<=[ºª])\s+(?=\d)", "", normalized)
+    return normalized
 
 
 def _pre_norm(line: str) -> str:
@@ -65,7 +72,7 @@ def _iter_lines(parsed: ParsedDocument) -> Iterable[str]:
         for raw in page.content:
             line = _pre_norm(raw.strip())
             if line:
-                yield line
+                yield _norm(line)
 
 
 def _is_header_block(line: str) -> bool:
@@ -100,6 +107,8 @@ def _collect_rows(lines: List[str]) -> List[Tuple[str, str]]:
             break
     # consume the rest
     for ln in it:
+        if _is_header_block(ln):
+            continue
         if _is_footer(ln):
             break
         if not in_stats:
@@ -112,7 +121,7 @@ def _collect_rows(lines: List[str]) -> List[Tuple[str, str]]:
         else:
             if "F-11" in ln:
                 cur_stats.append(ln)
-            elif ("," in ln) and ("F-11" not in ln) and not _is_header_block(ln):
+            elif _RE_NAME_COMMA.search(ln) and "F-11" not in ln:
                 flush()
                 cur_ident, cur_stats, in_stats = [ln], [], False
             else:
@@ -123,25 +132,33 @@ def _collect_rows(lines: List[str]) -> List[Tuple[str, str]]:
     return rows
 
 
-def _trim_identity_tail(tokens: List[str]) -> List[str]:
+def _trim_identity_tail(tokens: List[str]) -> Tuple[List[str], List[str]]:
     """Strip trailing division/group tokens and numbers from identity tail."""
+
     i = len(tokens)
+    removed: List[str] = []
     while i > 0:
         tok = tokens[i - 1]
-        low = tok.lower().strip(",.;:/-")
-        if (low in _DROP_TAIL) or low.isdigit():
+        cleaned = tok.strip(",.;:/-")
+        low = cleaned.lower()
+        if (low in _DROP_TAIL) or low.isdigit() or _RE_ORDINAL_TOKEN.fullmatch(cleaned):
+            removed.append(tok)
             i -= 1
             continue
         break
-    return tokens[:i]
+    kept = tokens[:i]
+    removed.reverse()
+    return kept, removed
 
 
-def _split_player_team(identity_text: str) -> Tuple[str, Optional[str]]:
-    """Split 'SURNAME, NAME TEAM...' -> (player, team)."""
+def _split_player_team(identity_text: str) -> Tuple[str, Optional[str], Optional[str]]:
+    """Split 'SURNAME, NAME TEAM...' -> (player, team, group tail)."""
+
     toks = [t for t in _norm(identity_text).replace("|", " ").split(" ") if t]
-    toks = _trim_identity_tail(toks)
+    toks, tail = _trim_identity_tail(toks)
+    group_text = _norm(" ".join(tail)) if tail else None
     if not toks:
-        return "", None
+        return "", None, group_text
     player: List[str] = []
     team: List[str] = []
     seen_comma = False
@@ -161,8 +178,12 @@ def _split_player_team(identity_text: str) -> Tuple[str, Optional[str]]:
         else:
             team.append(tok)
     if not seen_comma:
-        return " ".join(toks).strip(), None
-    return " ".join(player).strip(), (" ".join(team).strip() or None)
+        return " ".join(toks).strip(), None, group_text
+    return (
+        " ".join(player).strip(),
+        (" ".join(team).strip() or None),
+        group_text,
+    )
 
 def _parse_stats(stats_text: str) -> Tuple[Optional[int], Optional[int], Optional[float], Optional[int], Optional[str]]:
     """Extract matches, goals, ratio and penalties from the stats block (robust)."""
@@ -212,6 +233,12 @@ def _parse_stats(stats_text: str) -> Tuple[Optional[int], Optional[int], Optiona
         details_parts.append(f"({penalties} de penalti)")
     details = " ".join(details_parts) if details_parts else None
 
+    if ratio is None and matches and goals:
+        try:
+            ratio = round(goals / matches, 4)
+        except ZeroDivisionError:
+            ratio = None
+
     return matches, goals, ratio, penalties, details
 
 class TopScorersPdfParser(TopScorersParser):
@@ -250,13 +277,14 @@ class TopScorersPdfParser(TopScorersParser):
 
         entries: List[TopScorerEntry] = []
         for ident, stats in pairs:
-            player, team = _split_player_team(ident)
+            player, team, inferred_group = _split_player_team(ident)
             matches, goals, ratio, penalties, details = _parse_stats(stats)
+            group_value = category or inferred_group
             entries.append(
                 TopScorerEntry(
                     player=player,
                     team=team,
-                    group=None,
+                    group=group_value,
                     matches_played=matches,
                     goals_total=goals,
                     goals_details=details,

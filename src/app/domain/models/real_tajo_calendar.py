@@ -102,6 +102,8 @@ class RealTajoMatch:
     match_date: date
     opponent: str
     is_home: bool
+    kickoff_time: Optional[str] = None
+    venue: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         """Return a JSON-serializable representation of the match."""
@@ -112,6 +114,8 @@ class RealTajoMatch:
             "date": self.match_date.isoformat(),
             "opponent": self.opponent,
             "is_home": self.is_home,
+            "kickoff_time": self.kickoff_time,
+            "venue": self.venue,
         }
 
     @classmethod
@@ -132,12 +136,17 @@ class RealTajoMatch:
         except (TypeError, ValueError):
             matchday = 0
 
+        kickoff_value = data.get("kickoff_time") if data else None
+        venue_value = data.get("venue") if data else None
+
         return cls(
             stage=str(data.get("stage", "")),
             matchday=matchday,
             match_date=parsed_date or date.min,
             opponent=str(data.get("opponent", "")),
             is_home=bool(data.get("is_home", False)),
+            kickoff_time=str(kickoff_value) if isinstance(kickoff_value, str) else None,
+            venue=str(venue_value) if isinstance(venue_value, str) else None,
         )
 
 

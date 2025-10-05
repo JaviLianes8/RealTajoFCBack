@@ -53,7 +53,7 @@ def _build_sample_document() -> ParsedDocument:
             "Primera Vuelta",
             "Jornada 1 (11-10-2025)",
             "NUEVO - AMERICA",
-            "REAL TAJO - RACING ARANJUEZ",
+            "REAL TAJO - RACING ARANJUEZ Fecha: 11-10-2025 Hora: 18:00 Campo: EL DELEITE",
             "CELTIC C.F. - REAL SPORT",
             "AMG-ASESORIA JURIDICA- EXCAVACIONES",
             "TAJO - IRT ARANJUEZ",
@@ -121,7 +121,7 @@ def _build_sample_document() -> ParsedDocument:
             "REAL SPORT - AMG-ASESORIA JURIDICA- EXCAVACIONES",
             "TAJO",
             "RACING ARANJUEZ - CELTIC C.F.",
-            "AMERICA - REAL TAJO",
+            "AMERICA - REAL TAJO Fecha: 24-01-2026 Hora: 17:30 Campo: LOS PINOS",
             "NUEVO - ALBIRROJA",
             "Segunda Vuelta",
             "Jornada 10 (31-01-2026)",
@@ -194,7 +194,7 @@ def _build_sample_document() -> ParsedDocument:
             "AMG-ASESORIA JURIDICA- EXCAVACIONES",
             "TAJO - REAL SPORT",
             "CELTIC C.F. - RACING ARANJUEZ",
-            "REAL TAJO - AMERICA",
+            "REAL TAJO - AMERICA Fecha: 16-05-2026 Hora: 12:00 Campo: LAS OLIVAS",
             "ALBIRROJA - NUEVO",
         ],
     )
@@ -235,6 +235,8 @@ def test_parser_extracts_real_tajo_calendar() -> None:
     assert first_match.match_date == date(2025, 10, 11)
     assert first_match.is_home is True
     assert first_match.opponent == "RACING ARANJUEZ"
+    assert first_match.kickoff_time == "18:00"
+    assert first_match.venue == "EL DELEITE"
 
     last_match = calendar.matches[-1]
     assert last_match.stage == "Segunda Vuelta"
@@ -242,6 +244,8 @@ def test_parser_extracts_real_tajo_calendar() -> None:
     assert last_match.match_date == date(2026, 5, 16)
     assert last_match.is_home is True
     assert last_match.opponent == "AMERICA"
+    assert last_match.kickoff_time == "12:00"
+    assert last_match.venue == "LAS OLIVAS"
 
     team_info = calendar.team_info
     assert team_info.name == "REAL TAJO"
@@ -309,6 +313,46 @@ def test_parser_handles_inline_matchdays_and_multiple_matches_per_line() -> None
     assert second_match.matchday == 10
     assert second_match.is_home is False
     assert second_match.opponent == "RACING ARANJUEZ"
+
+
+def test_parser_extracts_details_from_separate_lines() -> None:
+    """Ensure the parser captures date, time and venue even when split across lines."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Calendario de Competiciones",
+                    "Equipos Participantes",
+                    "1.- REAL TAJO (1048)",
+                    "2.- AMERICA (1052)",
+                    "DELEGACION ZONAL DE ARANJUEZ R.F.F.M.",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 1 (11-10-2025)",
+                    "REAL TAJO - AMERICA",
+                    "Fecha: 12-10-2025",
+                    "Hora: 19:15",
+                    "Campo: EL DELEITE",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"details-lines")
+
+    assert len(calendar.matches) == 1
+    match = calendar.matches[0]
+    assert match.match_date == date(2025, 10, 12)
+    assert match.kickoff_time == "19:15"
+    assert match.venue == "EL DELEITE"
 
 
 def test_parser_accepts_matches_without_spaces_around_separator() -> None:

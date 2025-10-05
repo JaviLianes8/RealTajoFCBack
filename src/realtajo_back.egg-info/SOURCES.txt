@@ -40,4 +40,5 @@ tests/test_classification_extractor.py
 tests/test_json_classification_repository.py
 tests/test_json_top_scorers_repository.py
 tests/test_real_tajo_calendar_parser.py
+tests/test_settings.py
 tests/test_top_scorers_parser.py
