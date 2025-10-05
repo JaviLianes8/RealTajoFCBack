@@ -6,6 +6,7 @@ from io import BytesIO
 from types import ModuleType
 from typing import Iterable, List
 
+import pytest
 from openpyxl import Workbook
 
 from app.infrastructure.parsers.top_scorers_excel_parser import TopScorersExcelParser
@@ -109,6 +110,49 @@ def test_top_scorers_parser_accepts_decimal_separators() -> None:
     assert table.scorers[1].goals_per_match == 1.0
 
 
+def test_top_scorers_parser_reads_html_xls_documents() -> None:
+    """The parser should handle HTML tables saved with an XLS extension."""
+
+    html = """
+    <html>
+        <body>
+            <table>
+                <tr><td colspan="6">LIGA AFICIONADOS F-11</td></tr>
+                <tr><td colspan="6">Temporada 2025-2026</td></tr>
+                <tr>
+                    <th>Jugador</th>
+                    <th>Equipo</th>
+                    <th>Grupo</th>
+                    <th>Partidos Jugados</th>
+                    <th>Goles</th>
+                    <th>Goles partido</th>
+                </tr>
+                <tr>
+                    <td>PLAYER ONE</td>
+                    <td>TEAM</td>
+                    <td>GRUPO</td>
+                    <td>2</td>
+                    <td>3 (1 de penalti)</td>
+                    <td>1,5</td>
+                </tr>
+            </table>
+        </body>
+    </html>
+    """.strip()
+
+    parser = TopScorersExcelParser()
+    table = parser.parse(html.encode("utf-8"))
+
+    assert table.title == "LIGA AFICIONADOS F-11"
+    assert table.season == "2025-2026"
+    assert len(table.scorers) == 1
+
+    scorer = table.scorers[0]
+    assert scorer.player == "PLAYER ONE"
+    assert scorer.penalty_goals == 1
+    assert scorer.goals_per_match == 1.5
+
+
 def test_top_scorers_parser_preserves_trailing_cells_in_xls(monkeypatch) -> None:
     """The parser should keep trailing empty cells when using the XLS fallback."""
 
@@ -183,8 +227,10 @@ def test_build_xls_loaders_prefers_supported_modules(monkeypatch) -> None:
 
     loaders = parser_module._build_xls_loaders()
 
-    assert len(loaders) == 1
+    assert len(loaders) == 2
     assert loaders[0](b"fake") == [["value"]]
+    with pytest.raises(ValueError):
+        loaders[1](b"fake")
 
 
 def test_build_xls_loaders_uses_pyexcel_when_available(monkeypatch) -> None:
@@ -214,8 +260,10 @@ def test_build_xls_loaders_uses_pyexcel_when_available(monkeypatch) -> None:
 
     loaders = parser_module._build_xls_loaders()
 
-    assert len(loaders) == 1
+    assert len(loaders) == 2
     assert loaders[0](b"fake") == [
         ["Jugador", "Equipo", "Grupo"],
         ["NAME", "TEAM", "GROUP"],
     ]
+    with pytest.raises(ValueError):
+        loaders[1](b"fake")
