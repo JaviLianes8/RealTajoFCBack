@@ -7,14 +7,14 @@ from app.domain.repositories.top_scorer_repository import TopScorersRepository
 
 
 class TopScorersParser(Protocol):
-    """Represent a service able to extract top scorers from PDFs."""
+    """Represent a service able to extract top scorers from uploaded documents."""
 
     def parse(self, document_bytes: bytes) -> TopScorersTable:
         """Return the structured top scorers table contained in the document."""
 
 
 class ProcessTopScorersUseCase:
-    """Handle the ingestion of top scorers PDF documents."""
+    """Handle the ingestion of top scorers documents."""
 
     def __init__(
         self,

@@ -1,149 +1,111 @@
-"""Tests for the top scorers PDF parser."""
+"""Tests for the Excel-based top scorers parser."""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List
+from io import BytesIO
 
-from app.domain.models.document import DocumentPage, ParsedDocument
-from app.infrastructure.parsers.top_scorers_pdf_parser import TopScorersPdfParser
+from openpyxl import Workbook
 
-
-@dataclass
-class _StubDocumentParser:
-    """Simple document parser stub returning predefined lines."""
-
-    lines: List[str]
-
-    def parse(self, _: bytes) -> ParsedDocument:
-        """Return a parsed document composed of the provided lines."""
-
-        return ParsedDocument(pages=[DocumentPage(number=1, content=self.lines)])
+from app.infrastructure.parsers.top_scorers_excel_parser import TopScorersExcelParser
 
 
-def test_top_scorers_parser_extracts_entries() -> None:
-    """The parser should extract scorer entries and metadata from the PDF."""
+def _build_workbook(rows: list[list[object]]) -> bytes:
+    """Return workbook bytes for the provided ``rows``."""
 
-    lines = [
-        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
-        "Jugador Equipo Grupo Partidos",
-        "Jugados Goles Goles",
-        "partido",
-        "BOCANEGRA CAIPA, JOHN DAIRO CAFETERIA LA TACITA 2ª AFICIONADOS",
-        "F-11 2 4 2,0000",
-        "ARRIAGA MARTINEZ, MANUEL NEW COTTON MEKASO MCS 2ª AFICIONADOS",
-        "F-11 2",
-        "4 (1 de",
-        "penalti) 2,0000",
-        "DELEGACION ZONAL DE ARANJUEZ",
+    workbook = Workbook()
+    worksheet = workbook.active
+    for row in rows:
+        worksheet.append(row)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def test_top_scorers_parser_extracts_entries_and_metadata() -> None:
+    """The parser should extract metadata and scorer rows from the spreadsheet."""
+
+    rows = [
+        ["", "", "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11"],
+        ["", "Temporada 2025-2026"],
+        [],
+        ["Jugador", "Equipo", "Grupo", "Partidos Jugados", "Goles", "Goles partido"],
+        [
+            "ARRIAGA MARTINEZ, MANUEL",
+            "NEW COTTON MEKASO MCS",
+            "2ª AFICIONADOS F-11",
+            3,
+            "5 (2 de penalti)",
+            "1,6667",
+        ],
+        [
+            "BOCANEGRA CAIPA, JOHN DAIRO",
+            "CAFETERIA LA TACITA",
+            "2ª AFICIONADOS F-11",
+            3,
+            4,
+            "1,3333",
+        ],
     ]
+    document_bytes = _build_workbook(rows)
 
-    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
+    parser = TopScorersExcelParser()
 
-    table = parser.parse(b"pdf-bytes")
+    table = parser.parse(document_bytes)
 
     assert table.title == "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026"
+    assert table.competition == "LIGA AFICIONADOS F-11"
     assert table.category == "2ª AFICIONADOS F-11"
     assert table.season == "2025-2026"
     assert len(table.scorers) == 2
 
     first = table.scorers[0]
-    second = table.scorers[1]
-
-    assert first.player == "BOCANEGRA CAIPA, JOHN DAIRO"
-    assert first.team == "CAFETERIA LA TACITA"
+    assert first.player == "ARRIAGA MARTINEZ, MANUEL"
+    assert first.team == "NEW COTTON MEKASO MCS"
     assert first.group == "2ª AFICIONADOS F-11"
-    assert first.matches_played == 2
-    assert first.goals_total == 4
-    assert first.goals_per_match == 2.0
+    assert first.matches_played == 3
+    assert first.goals_total == 5
+    assert first.penalty_goals == 2
+    assert first.goals_per_match == 1.6667
 
-    assert second.player == "ARRIAGA MARTINEZ, MANUEL"
-    assert second.team == "NEW COTTON MEKASO MCS"
-    assert second.penalty_goals == 1
+    second = table.scorers[1]
+    assert second.player == "BOCANEGRA CAIPA, JOHN DAIRO"
+    assert second.goals_total == 4
+    assert second.penalty_goals is None
 
 
-def test_top_scorers_parser_accepts_varied_row_terminators() -> None:
-    """The parser should recognise scorer rows with diverse numeric endings."""
+def test_top_scorers_parser_ignores_empty_rows() -> None:
+    """Rows without a player name must be ignored by the parser."""
 
-    lines = [
-        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
-        "Jugador Equipo Grupo Partidos",
-        "BOCANEGRA CAIPA, JOHN DAIRO CAFETERIA LA TACITA 2ª AFICIONADOS",
-        "F-11 2 4 2.0000;",
-        "ARRIAGA MARTINEZ, MANUEL NEW COTTON MEKASO MCS 2ª AFICIONADOS",
-        "F-11 2 4 (1 de penalti) 2",
+    rows = [
+        ["Encabezado", "", "Temporada 2025-2026"],
+        ["Jugador", "Equipo", "Grupo", "Partidos", "Goles", "Goles partido"],
+        [None, "", "", "", "", ""],
+        ["Jugador Sin Equipo", "", "", "2", "1", "0,5"],
     ]
+    document_bytes = _build_workbook(rows)
 
-    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
+    parser = TopScorersExcelParser()
 
-    table = parser.parse(b"pdf-bytes")
-
-    assert len(table.scorers) == 2
-    assert table.scorers[0].goals_per_match == 2.0
-    assert table.scorers[1].goals_per_match == 2.0
-
-
-def test_top_scorers_parser_accepts_dot_decimal_row_terminator() -> None:
-    """The parser should finish rows when goals per match use dot decimals."""
-
-    lines = [
-        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
-        "Jugador Equipo Grupo Partidos",
-        "BOCANEGRA CAIPA, JOHN DAIRO CAFETERIA LA TACITA 2ª AFICIONADOS",
-        "F-11 2 4 1.5000",
-        "ARRIAGA MARTINEZ, MANUEL NEW COTTON MEKASO MCS 2ª AFICIONADOS",
-        "F-11 2 4 2",
-    ]
-
-    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
-
-    table = parser.parse(b"pdf-bytes")
-
-    assert len(table.scorers) == 2
-    assert table.scorers[0].goals_per_match == 1.5
-    assert table.scorers[1].goals_per_match == 2.0
-
-
-def test_top_scorers_parser_joins_split_numeric_lines() -> None:
-    """The parser should join rows even when numeric columns span multiple lines."""
-
-    lines = [
-        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
-        "Jugador Equipo Grupo Partidos",
-        "ARRIAGA MARTINEZ, MANUEL NEW COTTON MEKASO MCS 2ª AFICIONADOS",
-        "F-11 2",
-        "4",
-        "(1 de",
-        "penalti) 2,0000",
-    ]
-
-    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
-
-    table = parser.parse(b"pdf-bytes")
+    table = parser.parse(document_bytes)
 
     assert len(table.scorers) == 1
     scorer = table.scorers[0]
+    assert scorer.player == "Jugador Sin Equipo"
+    assert scorer.team is None
     assert scorer.matches_played == 2
-    assert scorer.goals_total == 4
-    assert scorer.penalty_goals == 1
+    assert scorer.goals_per_match == 0.5
 
 
-def test_top_scorers_parser_accepts_matches_with_trailing_punctuation() -> None:
-    """The parser should locate numeric columns even with trailing punctuation."""
+def test_top_scorers_parser_requires_header() -> None:
+    """The parser should fail when the header row cannot be located."""
 
-    lines = [
-        "LIGA AFICIONADOS F-11, 2ª AFICIONADOS F-11 Temporada 2025-2026",
-        "Jugador Equipo Grupo Partidos",
-        "BOCANEGRA CAIPA, JOHN DAIRO CAFETERIA LA TACITA 2ª AFICIONADOS",
-        "F-11 2, 4 2,0000",
-    ]
+    rows = [["Dato", "Otro"]]
+    document_bytes = _build_workbook(rows)
 
-    parser = TopScorersPdfParser(document_parser=_StubDocumentParser(lines))
+    parser = TopScorersExcelParser()
 
-    table = parser.parse(b"pdf-bytes")
-
-    assert len(table.scorers) == 1
-    scorer = table.scorers[0]
-    assert scorer.matches_played == 2
-    assert scorer.goals_total == 4
-    assert scorer.goals_per_match == 2.0
-
+    try:
+        parser.parse(document_bytes)
+    except ValueError as error:
+        assert "header" in str(error).lower()
+    else:
+        raise AssertionError("Expected parser to raise ValueError when header is missing")

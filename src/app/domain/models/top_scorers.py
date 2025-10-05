@@ -1,4 +1,4 @@
-"""Domain models representing top scorers tables extracted from PDFs."""
+"""Domain models representing extracted top scorers tables."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
