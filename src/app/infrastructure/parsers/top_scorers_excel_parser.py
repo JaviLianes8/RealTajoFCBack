@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from importlib import import_module
 from io import BytesIO
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from openpyxl import load_workbook
 
@@ -15,8 +15,10 @@ def _parse_version_tuple(raw_version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in parts)
 
 
-def _import_xls_reader() -> Any | None:
-    """Return a module capable of reading legacy XLS spreadsheets when available."""
+def _build_xls_loaders() -> List[Callable[[bytes], List[List[Any]]]]:
+    """Return XLS loader callables using the available optional dependencies."""
+
+    loaders: List[Callable[[bytes], List[List[Any]]]] = []
 
     for module_name in ("xlrd", "xlrd3"):
         try:  # pragma: no cover - depends on optional runtime dependencies
@@ -29,13 +31,58 @@ def _import_xls_reader() -> Any | None:
             # xlrd >= 2 removed support for legacy XLS files, fall back to xlrd3.
             continue
 
-        if hasattr(module, "open_workbook"):
-            return module
+        open_workbook = getattr(module, "open_workbook", None)
+        if not callable(open_workbook):
+            continue
 
-    return None
+        def _load_with_xlrd(
+            document_bytes: bytes, *, _module: Any = module
+        ) -> List[List[Any]]:
+            book = _module.open_workbook(file_contents=document_bytes)
+            sheet = book.sheet_by_index(0)
+            total_columns = getattr(sheet, "ncols", 0)
+            rows: List[List[Any]] = []
+            for index in range(sheet.nrows):
+                if total_columns:
+                    values = list(sheet.row_values(index, end_colx=total_columns))
+                    if len(values) < total_columns:
+                        values.extend([""] * (total_columns - len(values)))
+                else:
+                    values = list(sheet.row_values(index))
+                rows.append(values)
+            return rows
+
+        loaders.append(_load_with_xlrd)
+
+    try:  # pragma: no cover - depends on optional runtime dependencies
+        pyexcel_module = import_module("pyexcel_xls")
+    except Exception:  # pragma: no cover - module not installed or unusable
+        pyexcel_module = None
+
+    if pyexcel_module is not None:
+        get_data = getattr(pyexcel_module, "get_data", None)
+        if callable(get_data):
+
+            def _load_with_pyexcel(document_bytes: bytes) -> List[List[Any]]:
+                data = get_data(BytesIO(document_bytes))
+                if not data:
+                    return []
+                first_sheet = next(iter(data.values()), [])
+                max_length = max((len(row) for row in first_sheet), default=0)
+                normalised_rows: List[List[Any]] = []
+                for row in first_sheet:
+                    values = list(row)
+                    if max_length and len(values) < max_length:
+                        values.extend([""] * (max_length - len(values)))
+                    normalised_rows.append(values)
+                return normalised_rows
+
+            loaders.append(_load_with_pyexcel)
+
+    return loaders
 
 
-xlrd = _import_xls_reader()
+_XLS_LOADERS = _build_xls_loaders()
 
 from app.application.process_top_scorers import TopScorersParser
 from app.domain.models.top_scorers import TopScorerEntry, TopScorersTable
@@ -76,32 +123,23 @@ def _row_is_empty(row: Iterable[Any]) -> bool:
 
 
 def _load_excel_rows(document_bytes: bytes) -> List[List[Any]]:
-    """Load spreadsheet rows using ``openpyxl`` with an ``xlrd`` fallback for XLS."""
+    """Load spreadsheet rows using ``openpyxl`` with optional XLS fallbacks."""
 
     stream = BytesIO(document_bytes)
     try:
         workbook = load_workbook(stream, data_only=True, read_only=True)
     except Exception as openpyxl_error:  # pragma: no cover - exercised in XLS fallback
-        if xlrd is None:
-            raise ValueError("The provided Excel file could not be parsed.") from openpyxl_error
+        errors: List[Exception] = []
+        for loader in _XLS_LOADERS:
+            try:
+                return loader(document_bytes)
+            except Exception as loader_error:  # pragma: no cover - defensive fallback path
+                errors.append(loader_error)
+        root_error = errors[-1] if errors else openpyxl_error
+        raise ValueError("The provided Excel file could not be parsed.") from root_error
     else:
         worksheet = workbook.active
         return [list(row) for row in worksheet.iter_rows(values_only=True)]
-
-    try:  # pragma: no cover - requires legacy XLS fixtures
-        book = xlrd.open_workbook(file_contents=document_bytes)
-    except Exception as xls_error:  # pragma: no cover - defensive fallback path
-        raise ValueError("The provided Excel file could not be parsed.") from xls_error
-
-    sheet = book.sheet_by_index(0)
-    total_columns = getattr(sheet, "ncols", 0)
-    if total_columns == 0:
-        return [sheet.row_values(index) for index in range(sheet.nrows)]
-
-    return [
-        sheet.row_values(index, end_colx=total_columns)
-        for index in range(sheet.nrows)
-    ]
 
 
 def _locate_header(rows: List[List[Any]]) -> tuple[int, Dict[str, int]]:

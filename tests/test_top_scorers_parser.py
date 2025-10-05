@@ -128,33 +128,12 @@ def test_top_scorers_parser_preserves_trailing_cells_in_xls(monkeypatch) -> None
     def fake_load_workbook(*_args: object, **_kwargs: object) -> None:
         raise ValueError("legacy xls")
 
+    def fake_loader(document_bytes: bytes) -> List[List[object]]:
+        assert document_bytes == b"fake-xls"
+        return [list(row) for row in rows]
+
     monkeypatch.setattr(parser_module, "load_workbook", fake_load_workbook)
-
-    class DummySheet:
-        nrows = len(rows)
-        ncols = len(header)
-
-        def row_values(self, index: int, end_colx: int | None = None) -> List[object]:
-            row = list(rows[index])
-            if end_colx is None:
-                trimmed = list(row)
-                while trimmed and trimmed[-1] in ("", None):
-                    trimmed.pop()
-                return trimmed
-            return row[:end_colx]
-
-    class DummyBook:
-        def sheet_by_index(self, index: int) -> DummySheet:
-            assert index == 0
-            return DummySheet()
-
-    class DummyXlrd:
-        @staticmethod
-        def open_workbook(*, file_contents: bytes) -> DummyBook:
-            assert file_contents == b"fake-xls"
-            return DummyBook()
-
-    monkeypatch.setattr(parser_module, "xlrd", DummyXlrd)
+    monkeypatch.setattr(parser_module, "_XLS_LOADERS", [fake_loader])
 
     parser = parser_module.TopScorersExcelParser()
     table = parser.parse(b"fake-xls")
@@ -166,30 +145,74 @@ def test_top_scorers_parser_preserves_trailing_cells_in_xls(monkeypatch) -> None
     assert scorer.goals_per_match == 2.0
 
 
-def test_import_xls_reader_prefers_supported_modules(monkeypatch) -> None:
-    """The importer should skip xlrd>=2 and fall back to xlrd3 when available."""
+def test_build_xls_loaders_prefers_supported_modules(monkeypatch) -> None:
+    """The loader discovery should skip unsupported xlrd releases."""
 
     from app.infrastructure.parsers import top_scorers_excel_parser as parser_module
 
     unsupported = ModuleType("xlrd")
     unsupported.__version__ = "2.0.1"
+    unsupported.open_workbook = lambda **_kwargs: None  # type: ignore[attr-defined]
 
-    def _unsupported_open_workbook(**_kwargs: object) -> None:
-        return None
+    class DummySheet:
+        nrows = 1
+        ncols = 1
 
-    unsupported.open_workbook = _unsupported_open_workbook  # type: ignore[attr-defined]
+        @staticmethod
+        def row_values(_index: int, end_colx: int | None = None) -> List[object]:
+            return ["value"] if end_colx else ["value"]
+
+    class DummyBook:
+        @staticmethod
+        def sheet_by_index(index: int) -> DummySheet:
+            assert index == 0
+            return DummySheet()
 
     supported = ModuleType("xlrd3")
     supported.__version__ = "1.1.0"
+    supported.open_workbook = lambda **_kwargs: DummyBook()  # type: ignore[attr-defined]
 
-    def _supported_open_workbook(**_kwargs: object) -> None:
-        return None
+    modules = {"xlrd": unsupported, "xlrd3": supported}
 
-    supported.open_workbook = _supported_open_workbook  # type: ignore[attr-defined]
+    def fake_import_module(name: str) -> ModuleType:
+        if name not in modules:
+            raise ModuleNotFoundError(name)
+        return modules[name]
 
-    monkeypatch.setitem(sys.modules, "xlrd", unsupported)
-    monkeypatch.setitem(sys.modules, "xlrd3", supported)
+    monkeypatch.setattr(parser_module, "import_module", fake_import_module)
 
-    reader = parser_module._import_xls_reader()
+    loaders = parser_module._build_xls_loaders()
 
-    assert reader is supported
+    assert len(loaders) == 1
+    assert loaders[0](b"fake") == [["value"]]
+
+
+def test_build_xls_loaders_uses_pyexcel_when_available(monkeypatch) -> None:
+    """The loader discovery should use pyexcel-xls when installed."""
+
+    from app.infrastructure.parsers import top_scorers_excel_parser as parser_module
+
+    pyexcel_module = ModuleType("pyexcel_xls")
+
+    def fake_get_data(stream: BytesIO) -> dict[str, List[List[object]]]:
+        assert isinstance(stream, BytesIO)
+        return {"Hoja1": [["Jugador", "Equipo", "Grupo"], ["NAME", "TEAM", "GROUP"]]}
+
+    pyexcel_module.get_data = fake_get_data  # type: ignore[attr-defined]
+
+    modules = {"pyexcel_xls": pyexcel_module}
+
+    def fake_import_module(name: str) -> ModuleType:
+        if name not in modules:
+            raise ModuleNotFoundError(name)
+        return modules[name]
+
+    monkeypatch.setattr(parser_module, "import_module", fake_import_module)
+
+    loaders = parser_module._build_xls_loaders()
+
+    assert len(loaders) == 1
+    assert loaders[0](b"fake") == [
+        ["Jugador", "Equipo", "Grupo"],
+        ["NAME", "TEAM", "GROUP"],
+    ]
