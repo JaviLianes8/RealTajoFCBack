@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import List
 
 from app.application.process_document import DocumentParser
@@ -147,7 +148,7 @@ class MatchdayPdfParser(MatchdayParser):
 
             date_match = _DATE_RE.search(line)
             if date_match:
-                pending_date = date_match.group(0)
+                pending_date = self._normalise_date(date_match.group(0))
             time_match = _TIME_RE.search(line)
             if time_match:
                 pending_time = time_match.group(0)
@@ -218,7 +219,24 @@ class MatchdayPdfParser(MatchdayParser):
 
         consume_team_buffer()
         finalize_fixture()
+
         return fixtures
+
+    def _normalise_date(self, raw_date: str) -> str:
+        """Return the ISO formatted representation of ``raw_date`` when possible."""
+
+        cleaned = raw_date.strip()
+        if not cleaned:
+            return cleaned
+
+        normalized = cleaned.replace("/", "-")
+        for pattern in ("%d-%m-%Y", "%d-%m-%y"):
+            try:
+                parsed = datetime.strptime(normalized, pattern)
+            except ValueError:
+                continue
+            return parsed.strftime("%Y-%m-%d")
+        return normalized
 
     def _normalise_whitespace(self, text: str) -> str:
         """Collapse whitespace and exotic spaces in a line."""
