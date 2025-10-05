@@ -1,7 +1,7 @@
 """Application entry point defining the HTTP API."""
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import Awaitable, Callable, Protocol
 
 from fastapi import (
     APIRouter,
@@ -64,7 +64,7 @@ from app.infrastructure.repositories.json_matchday_repository import (
 from app.infrastructure.repositories.json_real_tajo_calendar_repository import (
     JsonRealTajoCalendarRepository,
 )
-from app.infrastructure.parsers.top_scorers_pdf_parser import TopScorersPdfParser
+from app.infrastructure.parsers.top_scorers_excel_parser import TopScorersExcelParser
 from app.infrastructure.repositories.json_top_scorers_repository import (
     JsonTopScorersRepository,
 )
@@ -126,7 +126,7 @@ def create_app(
     )
     real_tajo_calendar_retriever = RetrieveRealTajoCalendarUseCase(real_tajo_repository)
 
-    scorers_parser_service = top_scorers_parser or TopScorersPdfParser(pdf_parser)
+    scorers_parser_service = top_scorers_parser or TopScorersExcelParser()
     top_scorers_processor = ProcessTopScorersUseCase(
         scorers_parser_service,
         scorers_repository,
@@ -243,7 +243,7 @@ def create_app(
 
     @api_router.put("/top-scorers", status_code=status.HTTP_200_OK)
     async def upload_top_scorers(response: Response, file: UploadFile = File(...)) -> dict:
-        """Parse and persist the uploaded top scorers PDF, returning its JSON form."""
+        """Parse and persist the uploaded top scorers Excel file, returning its JSON form."""
 
         return await _process_upload(
             file,
@@ -251,6 +251,7 @@ def create_app(
             settings.max_upload_size_bytes,
             top_scorers_processor.execute,
             f"{settings.api_prefix}/top-scorers",
+            _read_excel_bytes,
         )
 
     @api_router.get("/top-scorers", status_code=status.HTTP_200_OK)
@@ -310,29 +311,65 @@ def create_app(
 app = create_app()
 
 
-async def _read_pdf_bytes(uploaded_file: UploadFile, max_size_bytes: int) -> bytes:
-    """Ensure the provided file is a PDF and return its bytes respecting size limits."""
+async def _read_binary_file(
+    uploaded_file: UploadFile,
+    max_size_bytes: int,
+    allowed_content_types: set[str],
+    type_error_message: str,
+    empty_error_message: str,
+    size_error_message: str,
+) -> bytes:
+    """Read ``uploaded_file`` ensuring type, non-emptiness and size constraints."""
 
-    if uploaded_file.content_type not in {"application/pdf", "application/x-pdf"}:
+    if uploaded_file.content_type not in allowed_content_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The uploaded file must be a PDF.",
+            detail=type_error_message,
         )
 
     file_bytes = await uploaded_file.read()
     if not file_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The PDF file is empty.",
+            detail=empty_error_message,
         )
 
     if len(file_bytes) > max_size_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="The PDF file exceeds the allowed size.",
+            detail=size_error_message,
         )
 
     return file_bytes
+
+
+async def _read_pdf_bytes(uploaded_file: UploadFile, max_size_bytes: int) -> bytes:
+    """Ensure the provided file is a PDF and return its bytes respecting size limits."""
+
+    return await _read_binary_file(
+        uploaded_file,
+        max_size_bytes,
+        {"application/pdf", "application/x-pdf"},
+        "The uploaded file must be a PDF.",
+        "The PDF file is empty.",
+        "The PDF file exceeds the allowed size.",
+    )
+
+
+async def _read_excel_bytes(uploaded_file: UploadFile, max_size_bytes: int) -> bytes:
+    """Ensure the provided file is an Excel workbook and return its bytes."""
+
+    return await _read_binary_file(
+        uploaded_file,
+        max_size_bytes,
+        {
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+        "The uploaded file must be an Excel workbook.",
+        "The Excel file is empty.",
+        "The Excel file exceeds the allowed size.",
+    )
 
 
 class _SerializableResource(Protocol):
@@ -348,11 +385,12 @@ async def _process_upload(
     max_size_bytes: int,
     processor: Callable[[bytes], _SerializableResource],
     resource_path: str,
+    reader: Callable[[UploadFile, int], Awaitable[bytes]] = _read_pdf_bytes,
 ) -> dict:
-    """Parse, persist and serialize an uploaded PDF, handling domain errors uniformly."""
+    """Parse, persist and serialize an uploaded document with unified error handling."""
 
-    pdf_bytes = await _read_pdf_bytes(file, max_size_bytes)
-    resource = _execute_processor(processor, pdf_bytes)
+    document_bytes = await reader(file, max_size_bytes)
+    resource = _execute_processor(processor, document_bytes)
     response.headers["Location"] = resource_path
     return resource.to_dict()
 
