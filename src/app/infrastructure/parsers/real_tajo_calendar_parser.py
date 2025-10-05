@@ -94,6 +94,17 @@ class _ParsedMatchResult:
     home_team: str
     away_team: str
     match_datetime: Optional[datetime] = None
+    kickoff_time: Optional[str] = None
+    field: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _MatchDateTimeMetadata:
+    """Capture the extracted datetime data and its position in the source text."""
+
+    value: datetime
+    time_text: Optional[str]
+    span: Tuple[int, int]
 
 
 def _extract_team_names(lines: Sequence[str]) -> List[str]:
@@ -198,6 +209,17 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
             if parsed_match.match_datetime is not None
             else current_date.date()
         )
+        kickoff_time_value = parsed_match.kickoff_time
+        if (
+            kickoff_time_value is None
+            and parsed_match.match_datetime is not None
+            and (
+                parsed_match.match_datetime.hour != 0
+                or parsed_match.match_datetime.minute != 0
+            )
+        ):
+            kickoff_time_value = parsed_match.match_datetime.strftime("%H:%M")
+        field_value = parsed_match.field
         opponent = away_team if home_team == real_tajo_name else home_team
         matches.append(
             RealTajoMatch(
@@ -206,6 +228,8 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
                 match_date=match_date_value,
                 opponent=opponent,
                 is_home=home_team == real_tajo_name,
+                kickoff_time=kickoff_time_value,
+                field=field_value,
             )
         )
 
@@ -287,11 +311,22 @@ def _parse_real_tajo_match_from_lines(
 
     combined = " ".join(jornada_lines).strip()
     candidates: List[str] = []
+    for index, line in enumerate(jornada_lines):
+        if "REAL TAJO" not in line.upper():
+            continue
+        variations: List[str] = []
+        if index > 0 and index + 1 < len(jornada_lines):
+            variations.append(
+                f"{jornada_lines[index - 1]} {line} {jornada_lines[index + 1]}"
+            )
+        if index > 0:
+            variations.append(f"{jornada_lines[index - 1]} {line}")
+        if index + 1 < len(jornada_lines):
+            variations.append(f"{line} {jornada_lines[index + 1]}")
+        variations.append(line)
+        candidates.extend(variations)
     if combined:
         candidates.append(combined)
-    candidates.extend(
-        line for line in jornada_lines if "REAL TAJO" in line.upper()
-    )
 
     seen_candidates: set[str] = set()
     for candidate in candidates:
@@ -334,8 +369,6 @@ def _parse_real_tajo_match_from_text(
     if "DESCANSA" not in {name.upper() for name in search_names}:
         search_names.append("DESCANSA")
 
-    match_datetime = _extract_match_datetime(text)
-
     occurrences = _collect_team_occurrences(text, search_names)
     if not occurrences:
         return None
@@ -362,6 +395,9 @@ def _parse_real_tajo_match_from_text(
             normalized_left,
             normalized_right,
         } == {normalized_real, _normalize_for_matching("Descansa")}:
+            match_datetime, kickoff_time, field = _extract_match_schedule_details(
+                text, left, right, occurrences
+            )
             return _ParsedMatchResult(
                 home_team=real_tajo_name
                 if normalized_left == normalized_real
@@ -370,19 +406,26 @@ def _parse_real_tajo_match_from_text(
                 if normalized_right == normalized_real
                 else "Descansa",
                 match_datetime=match_datetime,
+                kickoff_time=kickoff_time,
+                field=field,
             )
 
         if _normalize_for_matching("Descansa") in {normalized_left, normalized_right}:
             continue
 
+        match_datetime, kickoff_time, field = _extract_match_schedule_details(
+            text, left, right, occurrences
+        )
         return _ParsedMatchResult(
             home_team=real_tajo_name if normalized_left == normalized_real else left_team,
             away_team=real_tajo_name if normalized_right == normalized_real else right_team,
             match_datetime=match_datetime,
+            kickoff_time=kickoff_time,
+            field=field,
         )
 
     fallback = _parse_real_tajo_match_with_unknown_team(
-        text, real_tajo_name, match_datetime
+        text, real_tajo_name
     )
     if fallback is not None:
         return fallback
@@ -449,7 +492,7 @@ def _find_adjacent_team_right(
 
 
 def _parse_real_tajo_match_with_unknown_team(
-    text: str, real_tajo_name: str, match_datetime: Optional[datetime]
+    text: str, real_tajo_name: str
 ) -> Optional[_ParsedMatchResult]:
     """Fallback extraction for fixtures where the opponent is missing from participants."""
 
@@ -476,6 +519,9 @@ def _parse_real_tajo_match_with_unknown_team(
             continue
 
         if {normalized_home, normalized_away} == {normalized_real, descansa_marker}:
+            match_datetime, kickoff_time, field = _extract_schedule_details_from_split(
+                left_raw, right_raw, home_candidate, away_candidate
+            )
             return _ParsedMatchResult(
                 home_team=real_tajo_name
                 if normalized_home == normalized_real
@@ -484,11 +530,16 @@ def _parse_real_tajo_match_with_unknown_team(
                 if normalized_away == normalized_real
                 else "Descansa",
                 match_datetime=match_datetime,
+                kickoff_time=kickoff_time,
+                field=field,
             )
 
         if descansa_marker in {normalized_home, normalized_away}:
             continue
 
+        match_datetime, kickoff_time, field = _extract_schedule_details_from_split(
+            left_raw, right_raw, home_candidate, away_candidate
+        )
         return _ParsedMatchResult(
             home_team=real_tajo_name
             if normalized_home == normalized_real
@@ -497,9 +548,68 @@ def _parse_real_tajo_match_with_unknown_team(
             if normalized_away == normalized_real
             else away_candidate,
             match_datetime=match_datetime,
+            kickoff_time=kickoff_time,
+            field=field,
         )
 
     return None
+
+
+def _extract_match_schedule_details(
+    text: str,
+    left: Tuple[int, int, str],
+    right: Tuple[int, int, str],
+    occurrences: Sequence[Tuple[int, int, str]],
+) -> Tuple[Optional[datetime], Optional[str], Optional[str]]:
+    """Derive datetime, time and field for a parsed match using team offsets."""
+
+    tail_start = max(left[1], right[1])
+    tail_end_candidates = [start for start, _, _ in occurrences if start > tail_start]
+    tail_end = min(tail_end_candidates) if tail_end_candidates else len(text)
+    tail = text[tail_start:tail_end]
+    return _parse_schedule_tail(tail)
+
+
+def _extract_schedule_details_from_split(
+    left_segment: str,
+    right_segment: str,
+    home_team: str,
+    away_team: str,
+) -> Tuple[Optional[datetime], Optional[str], Optional[str]]:
+    """Derive schedule details for fallback parsing using raw split segments."""
+
+    # Prefer analysing the section after the away team to capture field/time markers.
+    tail = _remove_team_prefix(right_segment, away_team)
+    details = _parse_schedule_tail(tail)
+    if any(details):
+        return details
+
+    # When the right segment does not contain additional information, inspect the left.
+    prefix_tail = _remove_team_suffix(left_segment, home_team)
+    return _parse_schedule_tail(prefix_tail)
+
+
+def _remove_team_prefix(text: str, team_name: str) -> str:
+    """Remove the provided ``team_name`` prefix from ``text`` ignoring accents."""
+
+    stripped = text.lstrip()
+    consumed = _match_prefix(stripped, team_name)
+    if consumed is None:
+        return stripped.strip()
+    return stripped[consumed:].strip()
+
+
+def _remove_team_suffix(text: str, team_name: str) -> str:
+    """Remove the provided ``team_name`` suffix from ``text`` ignoring accents."""
+
+    stripped = text.rstrip()
+    reversed_text = stripped[::-1]
+    reversed_team = team_name[::-1]
+    consumed = _match_prefix(reversed_text, reversed_team)
+    if consumed is None:
+        return stripped.strip()
+    trimmed = stripped[: len(stripped) - consumed]
+    return trimmed.strip()
 
 
 def _sanitize_team_segment(segment: str) -> str:
@@ -557,22 +667,76 @@ MATCH_DATETIME_PATTERN = re.compile(
 )
 
 
-def _extract_match_datetime(text: str) -> Optional[datetime]:
-    """Extract a match datetime from ``text`` when the schedule provides it."""
+def _extract_match_datetime(text: str) -> Optional[_MatchDateTimeMetadata]:
+    """Extract datetime metadata from ``text`` when the schedule provides it."""
 
     matches = list(MATCH_DATETIME_PATTERN.finditer(text))
     if not matches:
         return None
 
-    date_part = matches[-1].group(1)
-    time_part = matches[-1].group(2)
+    selected = matches[-1]
+    date_part = selected.group(1)
+    time_part = selected.group(2)
 
     try:
         if time_part:
-            return datetime.strptime(f"{date_part} {time_part}", "%d-%m-%Y %H:%M")
-        return datetime.strptime(date_part, "%d-%m-%Y")
+            value = datetime.strptime(f"{date_part} {time_part}", "%d-%m-%Y %H:%M")
+        else:
+            value = datetime.strptime(date_part, "%d-%m-%Y")
     except ValueError:
         return None
+
+    return _MatchDateTimeMetadata(value=value, time_text=time_part, span=selected.span())
+
+
+FIELD_HEADER_PATTERN = re.compile(r"(?i)Campo\s+Fecha\s*/\s*Hora")
+
+
+def _parse_schedule_tail(
+    tail: str,
+) -> Tuple[Optional[datetime], Optional[str], Optional[str]]:
+    """Parse the trailing schedule information extracting datetime and field."""
+
+    cleaned_tail = tail.strip()
+    if not cleaned_tail:
+        return None, None, None
+
+    metadata = _extract_match_datetime(cleaned_tail)
+    field_text = cleaned_tail
+    kickoff_time = None
+    match_datetime = None
+
+    if metadata is not None:
+        match_datetime = metadata.value
+        kickoff_time = metadata.time_text
+        start, end = metadata.span
+        leading = cleaned_tail[:start].strip()
+        trailing = cleaned_tail[end:].strip()
+        field_text = " ".join(part for part in (leading, trailing) if part)
+
+    fixture_spill = re.search(
+        r"[A-ZÁÉÍÓÚÜÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÜÑ]{2,})*\s*[-–—]\s*[A-ZÁÉÍÓÚÜÑ]{2,}",
+        field_text,
+    )
+    if fixture_spill:
+        field_text = field_text[: fixture_spill.start()].strip()
+
+    normalized_field = _normalize_field_text(field_text)
+    field_value = normalized_field if normalized_field else None
+    return match_datetime, kickoff_time, field_value
+
+
+def _normalize_field_text(field_text: str) -> str:
+    """Sanitize ``field_text`` removing headers and stray separators."""
+
+    if not field_text:
+        return ""
+
+    cleaned = FIELD_HEADER_PATTERN.sub("", field_text)
+    cleaned = cleaned.replace("  ", " ")
+    cleaned = cleaned.strip(" -–—,;:")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
 
 
 KIT_PAIR_PATTERN = re.compile(

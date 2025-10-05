@@ -425,12 +425,16 @@ def test_parser_infers_stage_when_headers_are_missing() -> None:
     assert first_match.match_date.isoformat() == "2025-10-11"
     assert first_match.is_home is False
     assert first_match.opponent == "REAL SPORT"
+    assert first_match.kickoff_time == "15:30"
+    assert first_match.field == "ENRIQUE MORENO - B (HA)"
 
     assert second_match.matchday == 10
     assert second_match.stage == "Segunda Vuelta"
     assert second_match.match_date.isoformat() == "2026-01-31"
     assert second_match.is_home is True
     assert second_match.opponent == "REAL SPORT"
+    assert second_match.kickoff_time == "17:30"
+    assert second_match.field == "ENRIQUE MORENO - B (HA)"
 
 
 def test_parser_supports_multiline_team_names_in_participants_section() -> None:
@@ -724,9 +728,58 @@ def test_parse_calendar_with_field_and_time_columns() -> None:
     calendar = parser.parse(b"field-and-time")
 
     assert [
-        (match.matchday, match.match_date, match.opponent, match.is_home)
+        (
+            match.matchday,
+            match.match_date,
+            match.opponent,
+            match.is_home,
+            match.kickoff_time,
+            match.field,
+        )
         for match in calendar.matches
     ] == [
-        (1, date(2025, 10, 12), "REAL SPORT", False),
-        (2, date(2025, 10, 25), "AMERICA", True),
+        (1, date(2025, 10, 12), "REAL SPORT", False, "15:30", "ENRIQUE MORENO - B (HA)"),
+        (2, date(2025, 10, 25), "AMERICA", True, None, "Campo Municipal"),
     ]
+
+
+def test_parser_does_not_leak_datetime_from_other_matches() -> None:
+    """Ensure the parser assigns the correct kick-off to the Real Tajo fixture."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Calendario de Competiciones",
+                    "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+                    "Equipos Participantes",
+                    "1.- REAL SPORT (1001)",
+                    "2.- AMERICA (1002)",
+                    "3.- ALBIRROJA (1003)",
+                    "4.- RACING ARANJUEZ (1004)",
+                    "5.- REAL TAJO (1005)",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Primera Vuelta",
+                    "Jornada 3 (25-10-2025) Campo Fecha / Hora",
+                    "REAL SPORT - IRT ARANJUEZ CAMPO A 25-10-2025 - 09:00",
+                    "REAL TAJO - AMERICA CAMPO B 25-10-2025 - 11:30",
+                    "RACING ARANJUEZ - ALBIRROJA CAMPO C 25-10-2025 - 13:00",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"avoid-leak")
+
+    assert len(calendar.matches) == 1
+    match = calendar.matches[0]
+    assert match.match_date == date(2025, 10, 25)
+    assert match.kickoff_time == "11:30"
+    assert match.field == "CAMPO B"
