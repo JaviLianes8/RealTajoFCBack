@@ -14,7 +14,7 @@ curl -X PUT http://localhost:8765/api/v1/real-tajo/calendar -F "file=@C:\workspa
 curl -X GET http://localhost:8765/api/v1/real-tajo/calendar 
 – recupera en JSON el calendario almacenado del Real Tajo.
 
-curl -X PUT http://localhost:8765/api/v1/top-scorers -F "file=@C:\workspace_python\RealTajoFc\temp\Goleadores.pdf;type=application/pdf"
+curl -X PUT http://localhost:8765/api/v1/top-scorers -F "file=@C:\workspace_python\RealTajoFc\temp\Goleadores.xls;type=application/vnd.ms-excel"
 
 curl -X GET http://localhost:8765/api/v1/top-scorers
 
@@ -32,6 +32,6 @@ curl -X PUT https://realtajoback-b8a4dxbxdkhtgham.westeurope-01.azurewebsites.ne
 
 curl -X GET https://realtajoback-b8a4dxbxdkhtgham.westeurope-01.azurewebsites.net/api/v1/real-tajo/calendar
 
-curl -X PUT https://realtajoback-b8a4dxbxdkhtgham.westeurope-01.azurewebsites.net/api/v1/top-scorers -F "file=@C:\workspace_python\RealTajoFc\temp\Goleadores.pdf;type=application/pdf"
+curl -X PUT https://realtajoback-b8a4dxbxdkhtgham.westeurope-01.azurewebsites.net/api/v1/top-scorers -F "file=@C:\workspace_python\RealTajoFc\temp\Goleadores.xls;type=application/vnd.ms-excel"
 
 curl -X GET https://realtajoback-b8a4dxbxdkhtgham.westeurope-01.azurewebsites.net/api/v1/top-scorers

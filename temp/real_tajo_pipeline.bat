@@ -5,7 +5,7 @@ REM ========= Config =========
 set "BASE=https://realtajoback-b8a4dxbxdkhtgham.westeurope-01.azurewebsites.net/api/v1"
 set "CLASS_LONG=C:\workspace_python\RealTajoFc\temp\Clasificación.pdf"
 set "CAL_LONG=C:\workspace_python\RealTajoFc\temp\Calendario.pdf"
-set "GOAL_LONG=C:\workspace_python\RealTajoFc\temp\Goleadores.pdf"
+set "GOAL_LONG=C:\workspace_python\RealTajoFc\temp\Goleadores.xls"
 REM =========================
 
 REM Cambiar a UTF-8 ayuda en salidas; no es obligatorio
@@ -50,7 +50,7 @@ echo.
 echo ----------------------------------------------------------
 
 echo 6) PUT /top-scorers
-curl -s -S -X PUT "%BASE%/top-scorers" -F "file=@%GOAL_FILE%;type=application/pdf" ^
+curl -s -S -X PUT "%BASE%/top-scorers" -F "file=@%GOAL_FILE%;type=application/vnd.ms-excel" ^
   || echo [ERROR] /top-scorers fallo al subir "%GOAL_LONG%"
 echo.
 echo 7) GET /top-scorers
