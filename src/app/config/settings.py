@@ -16,6 +16,7 @@ class Settings:
     schedule_filename: str = "schedule.json"
     real_tajo_calendar_filename: str = "real_tajo_calendar.json"
     top_scorers_filename: str = "top_scorers.json"
+    matchdays_dirname: str = "matchdays"
     app_version: str = "0.1.0"
     api_version: str = "v1"
     allowed_origins: Tuple[str, ...] = ("*",)
@@ -44,6 +45,12 @@ class Settings:
         """Return the storage path for the top scorers data."""
 
         return self.data_dir / self.top_scorers_filename
+
+    @property
+    def matchdays_dir(self) -> Path:
+        """Return the directory used to store matchday result documents."""
+
+        return self.data_dir / self.matchdays_dirname
 
     @property
     def api_prefix(self) -> str:

@@ -24,7 +24,7 @@ from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 
 # ---------- regex helpers ----------
 _RE_SPACES = re.compile(r"\s+")
-_RE_RATIO_LAST = re.compile(r"(\d+,\d+)(?!.*\d+,\d+)")
+_RE_RATIO_LAST = re.compile(r"(\d+[.,]\d+)(?!.*\d+[.,]\d+)")
 _RE_INT = re.compile(r"\d+")
 _RE_PEN = re.compile(r"\(\s*(\d+)\s+de\s+penalti\s*\)", re.IGNORECASE)
 
@@ -43,8 +43,16 @@ _FOOTER_PREFIXES = ("DELEGACION", "DELEGACIÓN", "R.F.F.M", "RFFM", "FEDERACION"
 
 
 def _norm(text: str) -> str:
-    """Collapse exotic/multiple spaces."""
-    return _RE_SPACES.sub(" ", text.replace("\u00A0"," ").replace("\u2007"," ").replace("\u202F"," ")).strip()
+    """Collapse exotic/multiple spaces while preserving ordinal markers."""
+
+    normalized = (
+        text.replace("\u00A0", " ")
+        .replace("\u2007", " ")
+        .replace("\u202F", " ")
+        .replace(" ª", "ª")
+        .replace(" º", "º")
+    )
+    return _RE_SPACES.sub(" ", normalized).strip()
 
 
 def _pre_norm(line: str) -> str:
@@ -80,6 +88,27 @@ def _is_footer(line: str) -> bool:
     return any(up.startswith(p) for p in _FOOTER_PREFIXES) or "R.F.F.M" in up or "RFFM" in up
 
 
+def _contains_digit(text: str) -> bool:
+    """Return ``True`` when ``text`` contains at least one digit."""
+
+    return any(char.isdigit() for char in text)
+
+
+def _looks_like_identity_line(line: str) -> bool:
+    """Heuristically determine if ``line`` starts a new scorer identity block."""
+
+    if "," not in line:
+        return False
+    if "F-11" in line or _is_header_block(line):
+        return False
+    lowered = line.lower()
+    if "penalti" in lowered:
+        return False
+    if re.search(r"\d+[.,]\d+", line):
+        return False
+    return True
+
+
 def _collect_rows(lines: List[str]) -> List[Tuple[str, str]]:
     """Return (identity_text, stats_text) pairs using 'F-11' as the stats marker."""
     rows: List[Tuple[str, str]] = []
@@ -100,6 +129,8 @@ def _collect_rows(lines: List[str]) -> List[Tuple[str, str]]:
             break
     # consume the rest
     for ln in it:
+        if _is_header_block(ln):
+            continue
         if _is_footer(ln):
             break
         if not in_stats:
@@ -112,7 +143,7 @@ def _collect_rows(lines: List[str]) -> List[Tuple[str, str]]:
         else:
             if "F-11" in ln:
                 cur_stats.append(ln)
-            elif ("," in ln) and ("F-11" not in ln) and not _is_header_block(ln):
+            elif _looks_like_identity_line(ln):
                 flush()
                 cur_ident, cur_stats, in_stats = [ln], [], False
             else:
@@ -129,7 +160,7 @@ def _trim_identity_tail(tokens: List[str]) -> List[str]:
     while i > 0:
         tok = tokens[i - 1]
         low = tok.lower().strip(",.;:/-")
-        if (low in _DROP_TAIL) or low.isdigit():
+        if (low in _DROP_TAIL) or low.isdigit() or re.fullmatch(r"\d+[ºª]", low):
             i -= 1
             continue
         break
@@ -212,6 +243,9 @@ def _parse_stats(stats_text: str) -> Tuple[Optional[int], Optional[int], Optiona
         details_parts.append(f"({penalties} de penalti)")
     details = " ".join(details_parts) if details_parts else None
 
+    if ratio is None and matches and goals is not None and matches != 0:
+        ratio = round(goals / matches, 4)
+
     return matches, goals, ratio, penalties, details
 
 class TopScorersPdfParser(TopScorersParser):
@@ -228,7 +262,7 @@ class TopScorersPdfParser(TopScorersParser):
 
         # metadata
         header_line = next((ln for ln in lines if "Temporada" in ln), "")
-        title = header_line or None
+        title = _norm(header_line) or None
         competition: Optional[str] = None
         category: Optional[str] = None
         season: Optional[str] = None
@@ -256,7 +290,7 @@ class TopScorersPdfParser(TopScorersParser):
                 TopScorerEntry(
                     player=player,
                     team=team,
-                    group=None,
+                    group=category,
                     matches_played=matches,
                     goals_total=goals,
                     goals_details=details,
