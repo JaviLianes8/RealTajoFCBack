@@ -38,3 +38,51 @@ def test_fixtures_for_team_includes_bye_information() -> None:
 
     assert len(fixtures) == 1
     assert fixtures[0].is_bye
+
+
+def test_to_dict_normalizes_combined_names_for_real_tajo() -> None:
+    """Serializing should split concatenated Real Tajo fixtures into two teams."""
+
+    matchday = Matchday(
+        number=3,
+        fixtures=[
+            MatchFixture(
+                home_team="REAL SPORT REAL TAJO",
+                away_team="RACING ARANJUEZ ALBIRROJA",
+            )
+        ],
+    )
+
+    payload = matchday.to_dict(team_name="REAL TAJO")
+
+    assert payload == {
+        "matchdayNumber": 3,
+        "fixtures": [
+            {
+                "homeTeam": "REAL SPORT",
+                "awayTeam": "REAL TAJO",
+                "homeScore": None,
+                "awayScore": None,
+                "isBye": False,
+            }
+        ],
+    }
+
+
+def test_to_dict_preserves_real_tajo_variants_without_splitting() -> None:
+    """Team variants such as Real Tajo CF should remain untouched when serializing."""
+
+    matchday = Matchday(
+        number=4,
+        fixtures=[
+            MatchFixture(
+                home_team="RACING ARANJUEZ",
+                away_team="REAL TAJO C.F.",
+            )
+        ],
+    )
+
+    payload = matchday.to_dict(team_name="REAL TAJO")
+
+    assert payload["fixtures"][0]["homeTeam"] == "RACING ARANJUEZ"
+    assert payload["fixtures"][0]["awayTeam"] == "REAL TAJO"
