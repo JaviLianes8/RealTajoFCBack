@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -84,6 +85,15 @@ def _extract_competition_and_season(lines: Sequence[str]) -> Tuple[Optional[str]
 
 
 TEAM_LINE_PATTERN = re.compile(r"^(\d+)\.\-\s+(.+)$")
+
+
+@dataclass(frozen=True)
+class _ParsedMatchResult:
+    """Represent the parsed data for a Real Tajo fixture candidate."""
+
+    home_team: str
+    away_team: str
+    match_datetime: Optional[datetime] = None
 
 
 def _extract_team_names(lines: Sequence[str]) -> List[str]:
@@ -170,20 +180,26 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
             jornada_lines = []
             return
 
-        parsed = _parse_real_tajo_match_from_lines(
+        parsed_match = _parse_real_tajo_match_from_lines(
             jornada_lines, sorted_names, real_tajo_name
         )
         jornada_lines = []
-        if parsed is None:
+        if parsed_match is None:
             return
 
-        home_team, away_team = parsed
+        home_team = parsed_match.home_team
+        away_team = parsed_match.away_team
+        match_date_value = (
+            parsed_match.match_datetime.date()
+            if parsed_match.match_datetime is not None
+            else current_date.date()
+        )
         opponent = away_team if home_team == real_tajo_name else home_team
         matches.append(
             RealTajoMatch(
                 stage=current_stage,
                 matchday=current_matchday,
-                match_date=current_date.date(),
+                match_date=match_date_value,
                 opponent=opponent,
                 is_home=home_team == real_tajo_name,
             )
@@ -264,7 +280,7 @@ def _parse_real_tajo_match_from_lines(
     jornada_lines: Sequence[str],
     team_names: Sequence[str],
     real_tajo_name: str,
-) -> Optional[Tuple[str, str]]:
+) -> Optional[_ParsedMatchResult]:
     """Find the Real Tajo fixture within the accumulated jornada lines."""
 
     if not jornada_lines:
@@ -295,7 +311,7 @@ def _parse_real_tajo_match_from_lines(
 
 def _parse_real_tajo_match_from_text(
     text: str, team_names: Sequence[str], real_tajo_name: str
-) -> Optional[Tuple[str, str]]:
+) -> Optional[_ParsedMatchResult]:
     """Extract the Real Tajo pairing from ``text`` using team delimiters."""
 
     if "REAL TAJO" not in text.upper():
@@ -304,6 +320,8 @@ def _parse_real_tajo_match_from_text(
     search_names = list(team_names)
     if "DESCANSA" not in {name.upper() for name in search_names}:
         search_names.append("DESCANSA")
+
+    match_datetime = _extract_match_datetime(text)
 
     occurrences = _collect_team_occurrences(text, search_names)
     if not occurrences:
@@ -331,20 +349,28 @@ def _parse_real_tajo_match_from_text(
             normalized_left,
             normalized_right,
         } == {normalized_real, _normalize_for_matching("Descansa")}:
-            return (
-                real_tajo_name if normalized_left == normalized_real else "Descansa",
-                real_tajo_name if normalized_right == normalized_real else "Descansa",
+            return _ParsedMatchResult(
+                home_team=real_tajo_name
+                if normalized_left == normalized_real
+                else "Descansa",
+                away_team=real_tajo_name
+                if normalized_right == normalized_real
+                else "Descansa",
+                match_datetime=match_datetime,
             )
 
         if _normalize_for_matching("Descansa") in {normalized_left, normalized_right}:
             continue
 
-        return (
-            real_tajo_name if normalized_left == normalized_real else left_team,
-            real_tajo_name if normalized_right == normalized_real else right_team,
+        return _ParsedMatchResult(
+            home_team=real_tajo_name if normalized_left == normalized_real else left_team,
+            away_team=real_tajo_name if normalized_right == normalized_real else right_team,
+            match_datetime=match_datetime,
         )
 
-    fallback = _parse_real_tajo_match_with_unknown_team(text, real_tajo_name)
+    fallback = _parse_real_tajo_match_with_unknown_team(
+        text, real_tajo_name, match_datetime
+    )
     if fallback is not None:
         return fallback
 
@@ -410,8 +436,8 @@ def _find_adjacent_team_right(
 
 
 def _parse_real_tajo_match_with_unknown_team(
-    text: str, real_tajo_name: str
-) -> Optional[Tuple[str, str]]:
+    text: str, real_tajo_name: str, match_datetime: Optional[datetime]
+) -> Optional[_ParsedMatchResult]:
     """Fallback extraction for fixtures where the opponent is missing from participants."""
 
     normalized_real = _normalize_for_matching(real_tajo_name)
@@ -437,17 +463,27 @@ def _parse_real_tajo_match_with_unknown_team(
             continue
 
         if {normalized_home, normalized_away} == {normalized_real, descansa_marker}:
-            return (
-                real_tajo_name if normalized_home == normalized_real else "Descansa",
-                real_tajo_name if normalized_away == normalized_real else "Descansa",
+            return _ParsedMatchResult(
+                home_team=real_tajo_name
+                if normalized_home == normalized_real
+                else "Descansa",
+                away_team=real_tajo_name
+                if normalized_away == normalized_real
+                else "Descansa",
+                match_datetime=match_datetime,
             )
 
         if descansa_marker in {normalized_home, normalized_away}:
             continue
 
-        return (
-            real_tajo_name if normalized_home == normalized_real else home_candidate,
-            real_tajo_name if normalized_away == normalized_real else away_candidate,
+        return _ParsedMatchResult(
+            home_team=real_tajo_name
+            if normalized_home == normalized_real
+            else home_candidate,
+            away_team=real_tajo_name
+            if normalized_away == normalized_real
+            else away_candidate,
+            match_datetime=match_datetime,
         )
 
     return None
@@ -501,6 +537,29 @@ def _normalize_for_matching(text: str) -> str:
     normalized = unicodedata.normalize("NFD", text)
     stripped = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
     return stripped.upper()
+
+
+MATCH_DATETIME_PATTERN = re.compile(
+    r"(\d{2}-\d{2}-\d{4})(?:\s*[-–—]?\s*(\d{2}:\d{2}))?"
+)
+
+
+def _extract_match_datetime(text: str) -> Optional[datetime]:
+    """Extract a match datetime from ``text`` when the schedule provides it."""
+
+    matches = list(MATCH_DATETIME_PATTERN.finditer(text))
+    if not matches:
+        return None
+
+    date_part = matches[-1].group(1)
+    time_part = matches[-1].group(2)
+
+    try:
+        if time_part:
+            return datetime.strptime(f"{date_part} {time_part}", "%d-%m-%Y %H:%M")
+        return datetime.strptime(date_part, "%d-%m-%Y")
+    except ValueError:
+        return None
 
 
 KIT_PAIR_PATTERN = re.compile(

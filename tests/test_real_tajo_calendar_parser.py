@@ -632,3 +632,50 @@ def test_parser_ignores_noise_and_recovers_real_tajo_pairings() -> None:
         (13, date(2026, 3, 14), "AMG-ASESORIA JURIDICA- EXCAVACIONES TAJO", False),
         (17, date(2026, 5, 9), "AMERICA", True),
     ]
+
+
+def test_parse_calendar_with_field_and_time_columns() -> None:
+    """Parse calendars that include field and kick-off information per fixture."""
+
+    document = ParsedDocument(
+        pages=[
+            DocumentPage(
+                number=1,
+                content=[
+                    "Calendario de Competiciones",
+                    "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+                    "Equipos Participantes",
+                    "1.- REAL SPORT (1001)",
+                    "2.- REAL TAJO (1002)",
+                    "3.- AMERICA (1003)",
+                    "DELEGACION ZONAL DE ARANJUEZ R.F.F.M.",
+                ],
+            ),
+            DocumentPage(
+                number=2,
+                content=[
+                    "Calendario de Competiciones",
+                    "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+                    "Primera Vuelta",
+                    "Jornada 1 (11-10-2025) Campo Fecha / Hora",
+                    "Descansa - AMERICA",
+                    "REAL SPORT - REAL TAJO ENRIQUE MORENO - B (HA) 12-10-2025 - 15:30",
+                    "Jornada 2 (18-10-2025) Campo Fecha / Hora",
+                    "REAL TAJO - AMERICA Campo Municipal 25-10-2025",
+                    "DELEGACION ZONAL DE ARANJUEZ R.F.F.M.",
+                ],
+            ),
+        ]
+    )
+
+    parser = RealTajoCalendarPdfParser(document_parser=_StubDocumentParser(document))
+
+    calendar = parser.parse(b"field-and-time")
+
+    assert [
+        (match.matchday, match.match_date, match.opponent, match.is_home)
+        for match in calendar.matches
+    ] == [
+        (1, date(2025, 10, 12), "REAL SPORT", False),
+        (2, date(2025, 10, 25), "AMERICA", True),
+    ]
