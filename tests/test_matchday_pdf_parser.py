@@ -57,8 +57,12 @@ def test_parser_extracts_matchday_without_scores() -> None:
     assert matchday.fixtures[0].home_team == "AMERICA"
     assert matchday.fixtures[1].home_team == "REAL SPORT"
     assert matchday.fixtures[1].away_team == "REAL TAJO"
+    assert matchday.fixtures[1].date == "11-10-2025"
+    assert matchday.fixtures[1].time == "15:30"
     assert matchday.fixtures[2].home_team == "RACING ARANJUEZ"
     assert matchday.fixtures[2].away_team == "ALBIRROJA"
+    assert matchday.fixtures[2].date == "11-10-2025"
+    assert matchday.fixtures[2].time == "20:00"
     assert matchday.fixtures[3].home_team == "LA VESPA TAPAS-CLUB ATLETICO DE ARANJUEZ"
     assert matchday.fixtures[3].away_team == "AMG-ASESORIA JURIDICAEXCAVACIONES TAJO"
     assert matchday.fixtures[4].home_team == "IRT ARANJUEZ"
@@ -121,6 +125,8 @@ def test_parser_extracts_scores_and_results() -> None:
     assert fixtures[2].home_team == "SHOTS FC"
     assert fixtures[2].away_team == "FC. RAYO ARANJUEZ"
     assert fixtures[2].home_score == 3 and fixtures[2].away_score == 2
+    assert fixtures[2].date == "05-10-2025"
+    assert fixtures[2].time == "10:30"
     assert fixtures[3].home_team == "TABERNA CASARES / MISTER"
     assert fixtures[3].away_team == "PIXEL"
     assert fixtures[3].home_score == 0 and fixtures[3].away_score == 0

@@ -85,9 +85,11 @@ class MatchdayPdfParser(MatchdayParser):
         pending_home: str | None = None
         pending_away: str | None = None
         pending_scores: tuple[int, int] | None = None
+        pending_date: str | None = None
+        pending_time: str | None = None
 
         def finalize_fixture() -> None:
-            nonlocal pending_home, pending_away, pending_scores
+            nonlocal pending_home, pending_away, pending_scores, pending_date, pending_time
             if pending_home is None or pending_away is None:
                 return
             fixtures.append(
@@ -97,11 +99,15 @@ class MatchdayPdfParser(MatchdayParser):
                     home_score=pending_scores[0] if pending_scores else None,
                     away_score=pending_scores[1] if pending_scores else None,
                     is_bye=False,
+                    date=pending_date,
+                    time=pending_time,
                 )
             )
             pending_home = None
             pending_away = None
             pending_scores = None
+            pending_date = None
+            pending_time = None
 
         def consume_team_buffer(on_score_line: bool = False) -> None:
             nonlocal pending_home, pending_away
@@ -139,6 +145,13 @@ class MatchdayPdfParser(MatchdayParser):
             if any(lower_line.startswith(prefix) for prefix in _HEADER_PREFIXES):
                 continue
 
+            date_match = _DATE_RE.search(line)
+            if date_match:
+                pending_date = date_match.group(0)
+            time_match = _TIME_RE.search(line)
+            if time_match:
+                pending_time = time_match.group(0)
+
             inline_match = _INLINE_RESULT_RE.match(line)
             if inline_match:
                 consume_team_buffer()
@@ -152,11 +165,15 @@ class MatchdayPdfParser(MatchdayParser):
                         home_score=int(inline_match.group("home_score")),
                         away_score=int(inline_match.group("away_score")),
                         is_bye=False,
+                        date=pending_date,
+                        time=pending_time,
                     )
                 )
                 pending_home = None
                 pending_away = None
                 pending_scores = None
+                pending_date = None
+                pending_time = None
                 continue
 
             if lower_line.startswith("descansa"):
@@ -178,6 +195,8 @@ class MatchdayPdfParser(MatchdayParser):
                 pending_home = None
                 pending_away = None
                 pending_scores = None
+                pending_date = None
+                pending_time = None
                 continue
 
             score_match = _SCORE_ONLY_RE.match(line)

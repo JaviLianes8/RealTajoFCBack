@@ -64,6 +64,8 @@ def test_to_dict_normalizes_combined_names_for_real_tajo() -> None:
                 "homeScore": None,
                 "awayScore": None,
                 "isBye": False,
+                "date": None,
+                "time": None,
             }
         ],
     }
@@ -84,5 +86,7 @@ def test_to_dict_preserves_real_tajo_variants_without_splitting() -> None:
 
     payload = matchday.to_dict(team_name="REAL TAJO")
 
-    assert payload["fixtures"][0]["homeTeam"] == "RACING ARANJUEZ"
-    assert payload["fixtures"][0]["awayTeam"] == "REAL TAJO"
+    fixture_payload = payload["fixtures"][0]
+    assert fixture_payload["homeTeam"] == "RACING ARANJUEZ"
+    assert fixture_payload["awayTeam"] == "REAL TAJO"
+    assert "date" in fixture_payload and "time" in fixture_payload

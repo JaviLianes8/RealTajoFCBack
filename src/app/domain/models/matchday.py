@@ -62,6 +62,8 @@ class MatchFixture:
     home_score: int | None = None
     away_score: int | None = None
     is_bye: bool = False
+    date: str | None = None
+    time: str | None = None
 
     def to_dict(self, team_name: str | None = None) -> dict[str, Any]:
         """Return a JSON-serializable representation of the fixture."""
@@ -80,6 +82,8 @@ class MatchFixture:
             "homeScore": self.home_score,
             "awayScore": self.away_score,
             "isBye": self.is_bye,
+            "date": self.date,
+            "time": self.time,
         }
 
     def _serialize_for_team(self, team_name: str) -> dict[str, str | None]:
@@ -145,6 +149,10 @@ class MatchFixture:
         home_score = _to_optional_int(data.get("homeScore"))
         away_score = _to_optional_int(data.get("awayScore"))
         is_bye = bool(data.get("isBye", False))
+        date_value = data.get("date")
+        time_value = data.get("time")
+        date = str(date_value).strip() if date_value is not None else None
+        time = str(time_value).strip() if time_value is not None else None
 
         return cls(
             home_team=home_team,
@@ -152,6 +160,8 @@ class MatchFixture:
             home_score=home_score,
             away_score=away_score,
             is_bye=is_bye,
+            date=date,
+            time=time,
         )
 
 
