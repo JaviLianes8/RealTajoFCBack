@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from io import BytesIO
 import re
 from typing import Iterable, List, Optional, Sequence
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 from app.application.process_top_scorers import TopScorersParser
 from app.domain.models.top_scorers import TopScorerEntry, TopScorersTable
@@ -42,7 +44,10 @@ class TopScorersExcelParser(TopScorersParser):
     def parse(self, document_bytes: bytes) -> TopScorersTable:
         """Return the structured scorers table contained in ``document_bytes``."""
 
-        workbook = load_workbook(BytesIO(document_bytes), data_only=True)
+        try:
+            workbook = load_workbook(BytesIO(document_bytes), data_only=True)
+        except (InvalidFileException, BadZipFile) as error:
+            raise ValueError("The provided file is not a valid Excel workbook.") from error
         worksheet = workbook.active
         header_row_index, column_indexes, metadata_values = self._locate_header(worksheet.iter_rows(values_only=True))
         if column_indexes is None or header_row_index is None:
