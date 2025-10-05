@@ -40,6 +40,7 @@ from app.application.process_top_scorers import (
     TopScorersParser,
 )
 from app.config.settings import get_settings
+from app.domain.models.matchday import Matchday
 from app.domain.repositories.classification_repository import ClassificationRepository
 from app.domain.repositories.document_repository import DocumentRepository
 from app.domain.repositories.matchday_repository import MatchdayRepository
@@ -67,6 +68,9 @@ from app.infrastructure.parsers.top_scorers_pdf_parser import TopScorersPdfParse
 from app.infrastructure.repositories.json_top_scorers_repository import (
     JsonTopScorersRepository,
 )
+
+
+REAL_TAJO_TEAM_NAME = "REAL TAJO"
 
 
 def create_app(
@@ -261,6 +265,11 @@ def create_app(
             )
         return table.to_dict()
 
+    def _serialize_matchday(matchday: Matchday) -> dict:
+        """Return the Real Tajo-focused serialization for ``matchday``."""
+
+        return matchday.to_dict(team_name=REAL_TAJO_TEAM_NAME)
+
     @api_router.put("/matchdays", status_code=status.HTTP_200_OK)
     async def upload_matchday(response: Response, file: UploadFile = File(...)) -> dict:
         """Parse and persist the uploaded matchday PDF, returning its JSON form."""
@@ -268,7 +277,7 @@ def create_app(
         pdf_bytes = await _read_pdf_bytes(file, settings.max_upload_size_bytes)
         matchday = _execute_processor(matchday_processor.execute, pdf_bytes)
         response.headers["Location"] = f"{settings.api_prefix}/matchdays/{matchday.number}"
-        return matchday.to_dict()
+        return _serialize_matchday(matchday)
 
     @api_router.get("/matchdays/last", status_code=status.HTTP_200_OK)
     async def get_latest_matchday() -> dict:
@@ -280,7 +289,7 @@ def create_app(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No processed matchdays available.",
             )
-        return matchday.to_dict()
+        return _serialize_matchday(matchday)
 
     @api_router.get("/matchdays/{number}", status_code=status.HTTP_200_OK)
     async def get_matchday(number: int) -> dict:
@@ -292,7 +301,7 @@ def create_app(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No processed matchday found for the requested number.",
             )
-        return matchday.to_dict()
+        return _serialize_matchday(matchday)
 
     app.include_router(api_router)
     return app

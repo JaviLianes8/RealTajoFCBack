@@ -55,7 +55,12 @@ def test_upload_and_retrieve_matchday_endpoints() -> None:
     matchday = Matchday(
         number=7,
         fixtures=[
-            MatchFixture(home_team="Team A", away_team="Team B", home_score=2, away_score=1),
+            MatchFixture(
+                home_team="Team A",
+                away_team="REAL TAJO",
+                home_score=2,
+                away_score=1,
+            ),
             MatchFixture(home_team="Rest", away_team=None, is_bye=True),
         ],
     )
@@ -70,18 +75,19 @@ def test_upload_and_retrieve_matchday_endpoints() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json() == matchday.to_dict()
+    expected_payload = matchday.to_dict(team_name="REAL TAJO")
+    assert response.json() == expected_payload
     assert response.headers["Location"] == "/api/v1/matchdays/7"
     assert repository.get(7) == matchday
     assert parser.received_bytes == b"pdf-bytes"
 
     retrieved = client.get("/api/v1/matchdays/7")
     assert retrieved.status_code == 200
-    assert retrieved.json() == matchday.to_dict()
+    assert retrieved.json() == expected_payload
 
     latest = client.get("/api/v1/matchdays/last")
     assert latest.status_code == 200
-    assert latest.json() == matchday.to_dict()
+    assert latest.json() == expected_payload
 
 
 def test_matchday_endpoints_return_not_found_when_empty() -> None:

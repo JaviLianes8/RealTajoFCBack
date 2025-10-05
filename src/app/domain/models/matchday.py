@@ -5,6 +5,14 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
+def _normalize_team_name(name: str | None) -> str:
+    """Return a normalized version of ``name`` for case-insensitive comparisons."""
+
+    if name is None:
+        return ""
+    return " ".join(name.strip().casefold().split())
+
+
 @dataclass(frozen=True)
 class MatchFixture:
     """Represent a single fixture, optionally including the final score."""
@@ -25,6 +33,23 @@ class MatchFixture:
             "awayScore": self.away_score,
             "isBye": self.is_bye,
         }
+
+    def involves_team(self, team_name: str) -> bool:
+        """Return ``True`` when the fixture features the provided ``team_name``."""
+
+        normalized_target = _normalize_team_name(team_name)
+        if not normalized_target:
+            return False
+
+        home_name = _normalize_team_name(self.home_team)
+        away_name = _normalize_team_name(self.away_team)
+
+        if self.is_bye:
+            return normalized_target in home_name
+
+        return normalized_target in home_name or (
+            bool(away_name) and normalized_target in away_name
+        )
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> MatchFixture:
@@ -60,12 +85,33 @@ class Matchday:
     number: int
     fixtures: list[MatchFixture] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation of the matchday."""
+    def fixtures_for_team(self, team_name: str) -> list[MatchFixture]:
+        """Return the fixtures involving ``team_name`` within the matchday."""
+
+        normalized_target = _normalize_team_name(team_name)
+        if not normalized_target:
+            return []
+
+        return [
+            fixture for fixture in self.fixtures if fixture.involves_team(team_name)
+        ]
+
+    def to_dict(self, team_name: str | None = None) -> dict[str, Any]:
+        """Return a JSON-serializable representation of the matchday.
+
+        When ``team_name`` is provided only fixtures that include the specified
+        team are included in the serialized output.
+        """
+
+        fixtures = (
+            self.fixtures
+            if team_name is None
+            else self.fixtures_for_team(team_name)
+        )
 
         return {
             "matchdayNumber": self.number,
-            "fixtures": [fixture.to_dict() for fixture in self.fixtures],
+            "fixtures": [fixture.to_dict() for fixture in fixtures],
         }
 
     @classmethod
