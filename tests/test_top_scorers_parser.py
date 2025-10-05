@@ -194,8 +194,11 @@ def test_build_xls_loaders_uses_pyexcel_when_available(monkeypatch) -> None:
 
     pyexcel_module = ModuleType("pyexcel_xls")
 
-    def fake_get_data(stream: BytesIO) -> dict[str, List[List[object]]]:
+    def fake_get_data(
+        stream: BytesIO, *, file_type: str | None = None
+    ) -> dict[str, List[List[object]]]:
         assert isinstance(stream, BytesIO)
+        assert file_type == "xls"
         return {"Hoja1": [["Jugador", "Equipo", "Grupo"], ["NAME", "TEAM", "GROUP"]]}
 
     pyexcel_module.get_data = fake_get_data  # type: ignore[attr-defined]

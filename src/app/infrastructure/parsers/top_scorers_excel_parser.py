@@ -64,7 +64,7 @@ def _build_xls_loaders() -> List[Callable[[bytes], List[List[Any]]]]:
         if callable(get_data):
 
             def _load_with_pyexcel(document_bytes: bytes) -> List[List[Any]]:
-                data = get_data(BytesIO(document_bytes))
+                data = get_data(BytesIO(document_bytes), file_type="xls")
                 if not data:
                     return []
                 first_sheet = next(iter(data.values()), [])
