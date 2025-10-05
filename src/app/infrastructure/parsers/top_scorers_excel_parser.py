@@ -2,15 +2,40 @@
 from __future__ import annotations
 
 import re
+from importlib import import_module
 from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional
 
 from openpyxl import load_workbook
 
-try:  # pragma: no cover - optional dependency used for legacy XLS support
-    import xlrd  # type: ignore
-except Exception:  # pragma: no cover - xlrd is optional at runtime
-    xlrd = None
+def _parse_version_tuple(raw_version: str) -> tuple[int, ...]:
+    """Return a tuple with the numeric portions of ``raw_version``."""
+
+    parts = re.findall(r"\d+", raw_version)
+    return tuple(int(part) for part in parts)
+
+
+def _import_xls_reader() -> Any | None:
+    """Return a module capable of reading legacy XLS spreadsheets when available."""
+
+    for module_name in ("xlrd", "xlrd3"):
+        try:  # pragma: no cover - depends on optional runtime dependencies
+            module = import_module(module_name)
+        except Exception:  # pragma: no cover - module not installed or unusable
+            continue
+
+        version = _parse_version_tuple(getattr(module, "__version__", ""))
+        if module_name == "xlrd" and version >= (2, 0, 0):
+            # xlrd >= 2 removed support for legacy XLS files, fall back to xlrd3.
+            continue
+
+        if hasattr(module, "open_workbook"):
+            return module
+
+    return None
+
+
+xlrd = _import_xls_reader()
 
 from app.application.process_top_scorers import TopScorersParser
 from app.domain.models.top_scorers import TopScorerEntry, TopScorersTable

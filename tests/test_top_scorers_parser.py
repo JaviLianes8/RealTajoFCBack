@@ -1,7 +1,9 @@
 """Tests for the top scorers Excel parser."""
 from __future__ import annotations
 
+import sys
 from io import BytesIO
+from types import ModuleType
 from typing import Iterable, List
 
 from openpyxl import Workbook
@@ -162,3 +164,32 @@ def test_top_scorers_parser_preserves_trailing_cells_in_xls(monkeypatch) -> None
     assert scorer.matches_played == 2
     assert scorer.goals_total == 4
     assert scorer.goals_per_match == 2.0
+
+
+def test_import_xls_reader_prefers_supported_modules(monkeypatch) -> None:
+    """The importer should skip xlrd>=2 and fall back to xlrd3 when available."""
+
+    from app.infrastructure.parsers import top_scorers_excel_parser as parser_module
+
+    unsupported = ModuleType("xlrd")
+    unsupported.__version__ = "2.0.1"
+
+    def _unsupported_open_workbook(**_kwargs: object) -> None:
+        return None
+
+    unsupported.open_workbook = _unsupported_open_workbook  # type: ignore[attr-defined]
+
+    supported = ModuleType("xlrd3")
+    supported.__version__ = "1.1.0"
+
+    def _supported_open_workbook(**_kwargs: object) -> None:
+        return None
+
+    supported.open_workbook = _supported_open_workbook  # type: ignore[attr-defined]
+
+    monkeypatch.setitem(sys.modules, "xlrd", unsupported)
+    monkeypatch.setitem(sys.modules, "xlrd3", supported)
+
+    reader = parser_module._import_xls_reader()
+
+    assert reader is supported
