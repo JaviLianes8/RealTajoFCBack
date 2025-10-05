@@ -172,11 +172,15 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
         nonlocal jornada_lines
 
         if (
-            current_stage is None
-            or current_matchday is None
+            current_matchday is None
             or current_date is None
             or not jornada_lines
         ):
+            jornada_lines = []
+            return
+
+        stage_label = _resolve_stage_label(current_stage, current_matchday)
+        if stage_label is None:
             jornada_lines = []
             return
 
@@ -197,7 +201,7 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
         opponent = away_team if home_team == real_tajo_name else home_team
         matches.append(
             RealTajoMatch(
-                stage=current_stage,
+                stage=stage_label,
                 matchday=current_matchday,
                 match_date=match_date_value,
                 opponent=opponent,
@@ -252,12 +256,7 @@ def _extract_real_tajo_matches(lines: Sequence[str], team_names: Sequence[str]) 
                     jornada_lines.append(trailing)
                 continue
 
-        if (
-            current_stage is None
-            or current_matchday is None
-            or current_date is None
-            or not line
-        ):
+        if current_matchday is None or current_date is None or not line:
             continue
 
         if line.startswith("Calendario de Competiciones") or line.startswith("DELEGACION"):
@@ -307,6 +306,20 @@ def _parse_real_tajo_match_from_lines(
             return parsed
 
     return None
+
+
+def _resolve_stage_label(
+    explicit_stage: Optional[str], matchday: Optional[int]
+) -> Optional[str]:
+    """Determine the stage label for the jornada being finalised."""
+
+    if explicit_stage:
+        return explicit_stage
+
+    if matchday is None:
+        return None
+
+    return "Primera Vuelta" if matchday <= 9 else "Segunda Vuelta"
 
 
 def _parse_real_tajo_match_from_text(
