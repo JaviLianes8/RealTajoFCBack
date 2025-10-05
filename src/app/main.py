@@ -329,10 +329,7 @@ async def _read_excel_bytes(uploaded_file: UploadFile, max_size_bytes: int) -> b
     return await _read_document_bytes(
         uploaded_file,
         max_size_bytes,
-        {
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "application/vnd.ms-excel",
-        },
+        {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
         file_kind="Excel",
         type_description="an Excel (.xlsx) file",
     )
