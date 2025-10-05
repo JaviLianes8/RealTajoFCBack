@@ -102,6 +102,8 @@ class RealTajoMatch:
     match_date: date
     opponent: str
     is_home: bool
+    kickoff_time: Optional[str] = None
+    field: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         """Return a JSON-serializable representation of the match."""
@@ -112,6 +114,8 @@ class RealTajoMatch:
             "date": self.match_date.isoformat(),
             "opponent": self.opponent,
             "is_home": self.is_home,
+            "time": self.kickoff_time,
+            "field": self.field,
         }
 
     @classmethod
@@ -138,7 +142,18 @@ class RealTajoMatch:
             match_date=parsed_date or date.min,
             opponent=str(data.get("opponent", "")),
             is_home=bool(data.get("is_home", False)),
+            kickoff_time=_sanitize_optional_str(data.get("time")),
+            field=_sanitize_optional_str(data.get("field")),
         )
+
+
+def _sanitize_optional_str(value: object) -> Optional[str]:
+    """Return ``value`` as a trimmed string when it is a meaningful value."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 @dataclass(frozen=True)
