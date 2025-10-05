@@ -105,3 +105,60 @@ def test_top_scorers_parser_accepts_decimal_separators() -> None:
     assert len(table.scorers) == 2
     assert table.scorers[0].goals_per_match == 1.5
     assert table.scorers[1].goals_per_match == 1.0
+
+
+def test_top_scorers_parser_preserves_trailing_cells_in_xls(monkeypatch) -> None:
+    """The parser should keep trailing empty cells when using the XLS fallback."""
+
+    from app.infrastructure.parsers import top_scorers_excel_parser as parser_module
+
+    header = [
+        "Jugador",
+        "Equipo",
+        "Grupo",
+        "Partidos",
+        "Goles",
+        "Goles partido",
+    ]
+    data = ["PLAYER ONE", "TEAM", "GRUPO", 2, "4", ""]
+    rows = [header, data]
+
+    def fake_load_workbook(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("legacy xls")
+
+    monkeypatch.setattr(parser_module, "load_workbook", fake_load_workbook)
+
+    class DummySheet:
+        nrows = len(rows)
+        ncols = len(header)
+
+        def row_values(self, index: int, end_colx: int | None = None) -> List[object]:
+            row = list(rows[index])
+            if end_colx is None:
+                trimmed = list(row)
+                while trimmed and trimmed[-1] in ("", None):
+                    trimmed.pop()
+                return trimmed
+            return row[:end_colx]
+
+    class DummyBook:
+        def sheet_by_index(self, index: int) -> DummySheet:
+            assert index == 0
+            return DummySheet()
+
+    class DummyXlrd:
+        @staticmethod
+        def open_workbook(*, file_contents: bytes) -> DummyBook:
+            assert file_contents == b"fake-xls"
+            return DummyBook()
+
+    monkeypatch.setattr(parser_module, "xlrd", DummyXlrd)
+
+    parser = parser_module.TopScorersExcelParser()
+    table = parser.parse(b"fake-xls")
+
+    assert len(table.scorers) == 1
+    scorer = table.scorers[0]
+    assert scorer.matches_played == 2
+    assert scorer.goals_total == 4
+    assert scorer.goals_per_match == 2.0

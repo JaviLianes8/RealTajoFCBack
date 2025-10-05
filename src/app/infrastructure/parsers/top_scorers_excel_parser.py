@@ -69,7 +69,14 @@ def _load_excel_rows(document_bytes: bytes) -> List[List[Any]]:
         raise ValueError("The provided Excel file could not be parsed.") from xls_error
 
     sheet = book.sheet_by_index(0)
-    return [sheet.row_values(index) for index in range(sheet.nrows)]
+    total_columns = getattr(sheet, "ncols", 0)
+    if total_columns == 0:
+        return [sheet.row_values(index) for index in range(sheet.nrows)]
+
+    return [
+        sheet.row_values(index, end_colx=total_columns)
+        for index in range(sheet.nrows)
+    ]
 
 
 def _locate_header(rows: List[List[Any]]) -> tuple[int, Dict[str, int]]:
