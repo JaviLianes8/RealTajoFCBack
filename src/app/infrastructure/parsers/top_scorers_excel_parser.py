@@ -2,15 +2,113 @@
 from __future__ import annotations
 
 import re
+from html import unescape
+from html.parser import HTMLParser
+from importlib import import_module
 from io import BytesIO
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from openpyxl import load_workbook
 
-try:  # pragma: no cover - optional dependency used for legacy XLS support
-    import xlrd  # type: ignore
-except Exception:  # pragma: no cover - xlrd is optional at runtime
-    xlrd = None
+def _parse_version_tuple(raw_version: str) -> tuple[int, ...]:
+    """Return a tuple with the numeric portions of ``raw_version``."""
+
+    parts = re.findall(r"\d+", raw_version)
+    return tuple(int(part) for part in parts)
+
+
+def _build_xls_loaders() -> List[Callable[[bytes], List[List[Any]]]]:
+    """Return XLS loader callables using the available optional dependencies."""
+
+    loaders: List[Callable[[bytes], List[List[Any]]]] = []
+
+    for module_name in ("xlrd", "xlrd3"):
+        try:  # pragma: no cover - depends on optional runtime dependencies
+            module = import_module(module_name)
+        except Exception:  # pragma: no cover - module not installed or unusable
+            continue
+
+        version = _parse_version_tuple(getattr(module, "__version__", ""))
+        if module_name == "xlrd" and version >= (2, 0, 0):
+            # xlrd >= 2 removed support for legacy XLS files, fall back to xlrd3.
+            continue
+
+        open_workbook = getattr(module, "open_workbook", None)
+        if not callable(open_workbook):
+            continue
+
+        def _load_with_xlrd(
+            document_bytes: bytes, *, _module: Any = module
+        ) -> List[List[Any]]:
+            book = _module.open_workbook(file_contents=document_bytes)
+            sheet = book.sheet_by_index(0)
+            total_columns = getattr(sheet, "ncols", 0)
+            rows: List[List[Any]] = []
+            for index in range(sheet.nrows):
+                if total_columns:
+                    values = list(sheet.row_values(index, end_colx=total_columns))
+                    if len(values) < total_columns:
+                        values.extend([""] * (total_columns - len(values)))
+                else:
+                    values = list(sheet.row_values(index))
+                rows.append(values)
+            return rows
+
+        loaders.append(_load_with_xlrd)
+
+    try:  # pragma: no cover - depends on optional runtime dependencies
+        pyexcel_module = import_module("pyexcel_xls")
+    except Exception:  # pragma: no cover - module not installed or unusable
+        pyexcel_module = None
+
+    if pyexcel_module is not None:
+        get_data = getattr(pyexcel_module, "get_data", None)
+        if callable(get_data):
+
+            def _load_with_pyexcel(document_bytes: bytes) -> List[List[Any]]:
+                data = get_data(BytesIO(document_bytes), file_type="xls")
+                if not data:
+                    return []
+                first_sheet = next(iter(data.values()), [])
+                max_length = max((len(row) for row in first_sheet), default=0)
+                normalised_rows: List[List[Any]] = []
+                for row in first_sheet:
+                    values = list(row)
+                    if max_length and len(values) < max_length:
+                        values.extend([""] * (max_length - len(values)))
+                    normalised_rows.append(values)
+                return normalised_rows
+
+            loaders.append(_load_with_pyexcel)
+
+    def _load_with_html(document_bytes: bytes) -> List[List[Any]]:
+        """Return rows extracted from HTML tables masquerading as XLS files."""
+
+        text = _decode_html_document(document_bytes)
+        if text is None:
+            raise ValueError("The provided document is not an HTML table.")
+
+        parser = _HTMLTableParser()
+        parser.feed(text)
+        parser.close()
+        if not parser.rows:
+            raise ValueError("No tables were found in the HTML document.")
+
+        max_length = max((len(row) for row in parser.rows), default=0)
+        normalised: List[List[Any]] = []
+        for row in parser.rows:
+            values = list(row)
+            if max_length and len(values) < max_length:
+                values.extend([""] * (max_length - len(values)))
+            normalised.append(values)
+        return normalised
+
+    loaders.append(_load_with_html)
+
+    return loaders
+
+
+_XLS_LOADERS = _build_xls_loaders()
 
 from app.application.process_top_scorers import TopScorersParser
 from app.domain.models.top_scorers import TopScorerEntry, TopScorersTable
@@ -26,6 +124,152 @@ _HEADER_ALIASES: Dict[str, set[str]] = {
 }
 _PENALTIES_RE = re.compile(r"(\d+)\s*de\s*penalti", re.IGNORECASE)
 _NUMBER_RE = re.compile(r"\d+")
+
+
+def _decode_html_document(document_bytes: bytes) -> Optional[str]:
+    """Return the decoded HTML string when ``document_bytes`` contains a table."""
+
+    candidates = (
+        "utf-8",
+        "utf-8-sig",
+        "utf-16",
+        "utf-16le",
+        "utf-16be",
+        "latin-1",
+        "windows-1252",
+    )
+    marker = "<table"
+
+    for encoding in candidates:
+        try:
+            text = document_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        lower_text = text.lower()
+        if marker in lower_text:
+            return text
+    return None
+
+
+class _HTMLTableParser(HTMLParser):
+    """Collect cell values from the first HTML table found in a document."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._inside_table = False
+        self._nested_tables = 0
+        self._current_row: Optional[List[str]] = None
+        self._current_cell: Optional[List[str]] = None
+        self._current_col = 0
+        self._pending_rowspans: Dict[int, tuple[int, str]] = {}
+        self._cell_colspan = 1
+        self._cell_rowspan = 1
+        self.rows: List[List[str]] = []
+
+    # ------------------------------------------------------------------
+    # HTMLParser API
+    # ------------------------------------------------------------------
+    def handle_starttag(self, tag: str, attrs: List[tuple[str, Optional[str]]]) -> None:
+        if tag == "table":
+            if self._inside_table:
+                self._nested_tables += 1
+            else:
+                self._inside_table = True
+        elif not self._inside_table:
+            return
+        elif tag == "tr":
+            self._start_row()
+        elif tag in {"td", "th"}:
+            self._start_cell(dict(attrs))
+        elif tag == "br" and self._current_cell is not None:
+            self._current_cell.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "table" and self._inside_table:
+            if self._nested_tables:
+                self._nested_tables -= 1
+            else:
+                self._inside_table = False
+                self._pending_rowspans.clear()
+        elif not self._inside_table:
+            return
+        elif tag == "tr":
+            self._end_row()
+        elif tag in {"td", "th"}:
+            self._end_cell()
+
+    def handle_data(self, data: str) -> None:
+        if self._current_cell is not None:
+            self._current_cell.append(data)
+
+    def handle_entityref(self, name: str) -> None:  # pragma: no cover - inherited API
+        if self._current_cell is not None:
+            self._current_cell.append(unescape(f"&{name};"))
+
+    def handle_charref(self, name: str) -> None:  # pragma: no cover - inherited API
+        if self._current_cell is not None:
+            self._current_cell.append(unescape(f"&#{name};"))
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _start_row(self) -> None:
+        self._current_row = []
+        self._current_col = 0
+        self._consume_pending_rowspans()
+
+    def _end_row(self) -> None:
+        if self._current_row is None:
+            return
+        self._consume_pending_rowspans()
+        self.rows.append(self._current_row)
+        self._current_row = None
+        self._current_col = 0
+
+    def _start_cell(self, attrs: Dict[str, Optional[str]]) -> None:
+        if self._current_row is None:
+            self._start_row()
+        self._consume_pending_rowspans()
+        self._current_cell = []
+        self._cell_colspan = self._parse_span(attrs.get("colspan"))
+        self._cell_rowspan = self._parse_span(attrs.get("rowspan"))
+
+    def _end_cell(self) -> None:
+        if self._current_row is None or self._current_cell is None:
+            return
+        value = unescape("".join(self._current_cell)).replace("\xa0", " ").strip()
+        for offset in range(self._cell_colspan):
+            column_index = self._current_col + offset
+            column_value = value if offset == 0 else ""
+            self._current_row.append(column_value)
+            if self._cell_rowspan > 1:
+                self._pending_rowspans[column_index] = (
+                    self._cell_rowspan - 1,
+                    column_value,
+                )
+        self._current_col += self._cell_colspan
+        self._current_cell = None
+        self._cell_colspan = 1
+        self._cell_rowspan = 1
+
+    def _consume_pending_rowspans(self) -> None:
+        while self._pending_rowspans.get(self._current_col):
+            remaining, value = self._pending_rowspans[self._current_col]
+            self._current_row.append(value)
+            if remaining > 1:
+                self._pending_rowspans[self._current_col] = (remaining - 1, value)
+            else:
+                del self._pending_rowspans[self._current_col]
+            self._current_col += 1
+
+    @staticmethod
+    def _parse_span(raw: Optional[str]) -> int:
+        try:
+            span = int(raw) if raw else 1
+        except (TypeError, ValueError):
+            span = 1
+        return max(span, 1)
+
 
 
 def _stringify(value: Any) -> str:
@@ -51,25 +295,23 @@ def _row_is_empty(row: Iterable[Any]) -> bool:
 
 
 def _load_excel_rows(document_bytes: bytes) -> List[List[Any]]:
-    """Load spreadsheet rows using ``openpyxl`` with an ``xlrd`` fallback for XLS."""
+    """Load spreadsheet rows using ``openpyxl`` with optional XLS fallbacks."""
 
     stream = BytesIO(document_bytes)
     try:
         workbook = load_workbook(stream, data_only=True, read_only=True)
     except Exception as openpyxl_error:  # pragma: no cover - exercised in XLS fallback
-        if xlrd is None:
-            raise ValueError("The provided Excel file could not be parsed.") from openpyxl_error
+        errors: List[Exception] = []
+        for loader in _XLS_LOADERS:
+            try:
+                return loader(document_bytes)
+            except Exception as loader_error:  # pragma: no cover - defensive fallback path
+                errors.append(loader_error)
+        root_error = errors[-1] if errors else openpyxl_error
+        raise ValueError("The provided Excel file could not be parsed.") from root_error
     else:
         worksheet = workbook.active
         return [list(row) for row in worksheet.iter_rows(values_only=True)]
-
-    try:  # pragma: no cover - requires legacy XLS fixtures
-        book = xlrd.open_workbook(file_contents=document_bytes)
-    except Exception as xls_error:  # pragma: no cover - defensive fallback path
-        raise ValueError("The provided Excel file could not be parsed.") from xls_error
-
-    sheet = book.sheet_by_index(0)
-    return [sheet.row_values(index) for index in range(sheet.nrows)]
 
 
 def _locate_header(rows: List[List[Any]]) -> tuple[int, Dict[str, int]]:
