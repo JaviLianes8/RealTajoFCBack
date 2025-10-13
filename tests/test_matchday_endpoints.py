@@ -48,6 +48,20 @@ class _InMemoryMatchdayRepository(MatchdayRepository):
             return None
         return self._data[max(self._data)]
 
+    def delete(self, number: int) -> bool:  # noqa: D401 - protocol compliance
+        """Remove the matchday identified by ``number`` when present."""
+
+        return self._data.pop(number, None) is not None
+
+    def delete_last(self) -> bool:  # noqa: D401 - protocol compliance
+        """Remove the matchday with the highest key when present."""
+
+        if not self._data:
+            return False
+        highest = max(self._data)
+        del self._data[highest]
+        return True
+
 
 def test_upload_and_retrieve_matchday_endpoints() -> None:
     """Uploading a matchday should persist it and allow retrieval."""
@@ -101,3 +115,29 @@ def test_matchday_endpoints_return_not_found_when_empty() -> None:
 
     response_last = client.get("/api/v1/matchdays/last")
     assert response_last.status_code == 404
+
+    delete_number = client.delete("/api/v1/matchdays/99")
+    assert delete_number.status_code == 404
+
+    delete_last = client.delete("/api/v1/matchdays/last")
+    assert delete_last.status_code == 404
+
+
+def test_delete_matchday_endpoints() -> None:
+    """Deleting matchdays should remove the stored resources."""
+
+    repository = _InMemoryMatchdayRepository()
+    first = Matchday(number=1, fixtures=[])
+    second = Matchday(number=2, fixtures=[])
+    repository.save(first)
+    repository.save(second)
+    app = create_app(matchday_parser=_StubMatchdayParser(second), matchday_repo=repository)
+    client = TestClient(app)
+
+    delete_specific = client.delete("/api/v1/matchdays/1")
+    assert delete_specific.status_code == 204
+    assert repository.get(1) is None
+
+    delete_latest = client.delete("/api/v1/matchdays/last")
+    assert delete_latest.status_code == 204
+    assert repository.get(2) is None
