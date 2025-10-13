@@ -17,6 +17,9 @@ _INLINE_RESULT_RE = re.compile(
     re.IGNORECASE,
 )
 _SCORE_ONLY_RE = re.compile(r"^(?P<home>\d+)\s*-\s*(?P<away>\d+)$")
+_TEAM_WITH_TRAILING_SCORE_RE = re.compile(
+    r"^(?P<team>.+?)\s+(?P<home_score>\d+)\s*-\s*(?P<away_score>\d+)$"
+)
 _DATE_RE = re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b")
 _TIME_RE = re.compile(r"\b\d{1,2}:\d{2}\b")
 _HEADER_PREFIXES = (
@@ -175,6 +178,27 @@ class MatchdayPdfParser(MatchdayParser):
                 pending_scores = None
                 pending_date = None
                 pending_time = None
+                continue
+
+            trailing_score_match = _TEAM_WITH_TRAILING_SCORE_RE.match(line)
+            if trailing_score_match:
+                consume_team_buffer()
+                team_name = self._normalise_team_name([
+                    trailing_score_match.group("team")
+                ])
+                if team_name:
+                    if pending_home is None:
+                        pending_home = team_name
+                    elif pending_away is None:
+                        pending_away = team_name
+                    else:
+                        finalize_fixture()
+                        pending_home = team_name
+                        pending_away = None
+                    pending_scores = (
+                        int(trailing_score_match.group("home_score")),
+                        int(trailing_score_match.group("away_score")),
+                    )
                 continue
 
             if lower_line.startswith("descansa"):
