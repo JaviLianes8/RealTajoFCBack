@@ -136,3 +136,34 @@ def test_parser_extracts_scores_and_results() -> None:
     assert fixtures[5].home_team == "CHESTERFIELD UNITED"
     assert fixtures[5].away_team == "ALPHA TEAM"
     assert fixtures[5].home_score == 0 and fixtures[5].away_score == 0
+
+
+def test_parser_extracts_score_embedded_in_home_team_line() -> None:
+    """Parser should capture scores appended to a team line."""
+
+    page = DocumentPage(
+        number=1,
+        content=[
+            "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+            "Jornada 1",
+            "Resultados",
+            "Descansa AMERICA",
+            "REAL SPORT 2 - 1",
+            "11-10-2025",
+            "15:30",
+            "REAL TAJO",
+            "Campo: ENRIQUE MORENO - B - Hierba Artificial",
+        ],
+    )
+    document = ParsedDocument(pages=[page])
+    parser = MatchdayPdfParser(document_parser=_StubDocumentParser(document))
+
+    matchday = parser.parse(b"dummy")
+
+    fixtures = [fixture for fixture in matchday.fixtures if not fixture.is_bye]
+    assert fixtures[0].home_team == "REAL SPORT"
+    assert fixtures[0].away_team == "REAL TAJO"
+    assert fixtures[0].home_score == 2
+    assert fixtures[0].away_score == 1
+    assert fixtures[0].date == "2025-10-11"
+    assert fixtures[0].time == "15:30"
