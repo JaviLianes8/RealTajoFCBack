@@ -34,6 +34,29 @@ def test_extracts_rows_when_team_and_stats_are_concatenated() -> None:
     assert table.rows[1].stats["losses"] == 2
 
 
+def test_extracts_rows_with_form_letters_and_concatenated_digits() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "9 REAL TAJO 0100112 P 0",
+        "(*) Resultado provisional",
+    )
+
+    table = extract_classification(document)
+    stats = table.rows[0].stats
+
+    assert table.rows[0].team == "REAL TAJO"
+    assert stats["points"] == 0
+    assert stats["played"] == 1
+    assert stats["wins"] == 0
+    assert stats["draws"] == 0
+    assert stats["losses"] == 1
+    assert stats["goals_for"] == 1
+    assert stats["goals_against"] == 2
+    assert stats["last_points"] == 0
+    assert stats["sanction_points"] == 0
+
+
 def test_merges_multi_line_rows_before_parsing() -> None:
     document = build_document(
         "Equipos Partidos Goles Últimos Sanción",

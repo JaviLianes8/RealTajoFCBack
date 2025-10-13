@@ -11,7 +11,8 @@ from app.domain.models.classification import ClassificationRow
 _ROW_INDEX_PATTERN = re.compile(r"^\d+")
 _ROW_HAS_LETTER_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
 _ROW_PATTERN = re.compile(r"^(?P<position>\d+)\s*(?P<body>.+)$")
-_TRAILING_NUMBERS_PATTERN = re.compile(r"(\d[\d\s]*)$")
+_TRAILING_STATS_PATTERN = re.compile(r"([\d\sGEP]+)$", re.IGNORECASE)
+_FORM_TOKEN_TO_POINTS = {"G": "3", "E": "1", "P": "0"}
 
 
 @dataclass(frozen=True)
@@ -210,12 +211,12 @@ class ClassificationRowDecoder:
         if not body:
             return None
 
-        stats_section_match = _TRAILING_NUMBERS_PATTERN.search(body)
+        stats_section_match = _TRAILING_STATS_PATTERN.search(body)
         if stats_section_match is None:
             team = body
             stats_section = ""
         else:
-            stats_section = stats_section_match.group(1)
+            stats_section = _normalize_stats_section(stats_section_match.group(1))
             team = body[: stats_section_match.start()].strip()
 
         if not team:
@@ -228,6 +229,21 @@ class ClassificationRowDecoder:
         }
 
         return ClassificationRow(position=position, team=team, stats=stats, raw=line)
+
+
+def _normalize_stats_section(section: str) -> str:
+    """Return ``section`` replacing known form tokens with numeric values."""
+
+    tokens = section.split()
+    if not tokens:
+        return section
+
+    normalized_tokens: List[str] = []
+    for token in tokens:
+        mapped = _FORM_TOKEN_TO_POINTS.get(token.upper())
+        normalized_tokens.append(mapped if mapped is not None else token)
+
+    return " ".join(normalized_tokens)
 
 
 class RowAssembler:
