@@ -20,3 +20,11 @@ class MatchdayRepository(ABC):
     @abstractmethod
     def get_last(self) -> Matchday | None:
         """Return the most recent matchday stored in the repository."""
+
+    @abstractmethod
+    def delete(self, number: int) -> bool:
+        """Remove the matchday identified by ``number`` returning ``True`` when deleted."""
+
+    @abstractmethod
+    def delete_last(self) -> bool:
+        """Remove the most recent matchday returning ``True`` when a file was deleted."""

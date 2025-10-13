@@ -19,6 +19,8 @@ from app.application.process_classification import (
     RetrieveClassificationUseCase,
 )
 from app.application.process_matchday import (
+    DeleteLatestMatchdayUseCase,
+    DeleteMatchdayUseCase,
     MatchdayParser,
     ProcessMatchdayUseCase,
     RetrieveLatestMatchdayUseCase,
@@ -140,6 +142,8 @@ def create_app(
     )
     matchday_retriever = RetrieveMatchdayUseCase(matchday_repository)
     latest_matchday_retriever = RetrieveLatestMatchdayUseCase(matchday_repository)
+    matchday_deleter = DeleteMatchdayUseCase(matchday_repository)
+    latest_matchday_deleter = DeleteLatestMatchdayUseCase(matchday_repository)
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
@@ -303,6 +307,30 @@ def create_app(
                 detail="No processed matchday found for the requested number.",
             )
         return _serialize_matchday(matchday)
+
+    @api_router.delete("/matchdays/last", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_latest_matchday() -> Response:
+        """Delete the most recently processed matchday when available."""
+
+        deleted = latest_matchday_deleter.execute()
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed matchdays available.",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @api_router.delete("/matchdays/{number}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_matchday(number: int) -> Response:
+        """Delete the stored matchday identified by ``number`` when it exists."""
+
+        deleted = matchday_deleter.execute(number)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed matchday found for the requested number.",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(api_router)
     return app

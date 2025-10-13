@@ -57,3 +57,31 @@ class RetrieveLatestMatchdayUseCase:
         """Return the latest available matchday or ``None`` when none exist."""
 
         return self._repository.get_last()
+
+
+class DeleteMatchdayUseCase:
+    """Delete a stored matchday identified by its ordinal number."""
+
+    def __init__(self, repository: MatchdayRepository) -> None:
+        """Initialize the use case with the repository dependency."""
+
+        self._repository = repository
+
+    def execute(self, number: int) -> bool:
+        """Return ``True`` when the requested matchday existed and was removed."""
+
+        return self._repository.delete(number)
+
+
+class DeleteLatestMatchdayUseCase:
+    """Delete the most recently stored matchday when present."""
+
+    def __init__(self, repository: MatchdayRepository) -> None:
+        """Initialize the use case with the repository dependency."""
+
+        self._repository = repository
+
+    def execute(self) -> bool:
+        """Return ``True`` when a matchday was deleted and ``False`` otherwise."""
+
+        return self._repository.delete_last()
