@@ -57,6 +57,27 @@ def test_extracts_rows_with_form_letters_and_concatenated_digits() -> None:
     assert stats["sanction_points"] == 0
 
 
+def test_sums_multiple_form_tokens_before_decoding_stats() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "1 IRT ARANJUEZ 3110021 G P 0",
+    )
+
+    table = extract_classification(document)
+    stats = table.rows[0].stats
+
+    assert stats["points"] == 3
+    assert stats["played"] == 1
+    assert stats["wins"] == 1
+    assert stats["draws"] == 0
+    assert stats["losses"] == 0
+    assert stats["goals_for"] == 2
+    assert stats["goals_against"] == 1
+    assert stats["last_points"] == 3
+    assert stats["sanction_points"] == 0
+
+
 def test_merges_multi_line_rows_before_parsing() -> None:
     document = build_document(
         "Equipos Partidos Goles Últimos Sanción",

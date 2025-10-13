@@ -239,9 +239,23 @@ def _normalize_stats_section(section: str) -> str:
         return section
 
     normalized_tokens: List[str] = []
+    accumulated_form_points: List[int] = []
+
+    def flush_form_points() -> None:
+        if accumulated_form_points:
+            normalized_tokens.append(str(sum(accumulated_form_points)))
+            accumulated_form_points.clear()
+
     for token in tokens:
         mapped = _FORM_TOKEN_TO_POINTS.get(token.upper())
-        normalized_tokens.append(mapped if mapped is not None else token)
+        if mapped is not None:
+            accumulated_form_points.append(int(mapped))
+            continue
+
+        flush_form_points()
+        normalized_tokens.append(token)
+
+    flush_form_points()
 
     return " ".join(normalized_tokens)
 
