@@ -167,3 +167,43 @@ def test_parser_extracts_score_embedded_in_home_team_line() -> None:
     assert fixtures[0].away_score == 1
     assert fixtures[0].date == "2025-10-11"
     assert fixtures[0].time == "15:30"
+
+
+def test_parser_handles_descansa_suffix_and_post_score_away_team() -> None:
+    """Parser should detect byes and away teams declared after the score line."""
+
+    page = DocumentPage(
+        number=1,
+        content=[
+            "LIGA AFICIONADOS F-11, 3ª AFICIONADOS F-11 Temporada 2025-2026",
+            "Jornada 2",
+            "Resultados",
+            "AMG-ASESORIA JURIDICA",
+            "EXCAVACIONES",
+            "TAJO Descansa",
+            "REAL TAJO",
+            "3 - 0",
+            "19-10-2025",
+            "13:40",
+            "IRT ARANJUEZ",
+            "Campo: ENRIQUE MORENO - F - Hierba Artificial",
+        ],
+    )
+    document = ParsedDocument(pages=[page])
+    parser = MatchdayPdfParser(document_parser=_StubDocumentParser(document))
+
+    matchday = parser.parse(b"dummy")
+
+    assert matchday.number == 2
+    assert len(matchday.fixtures) == 2
+    bye_fixture = matchday.fixtures[0]
+    assert bye_fixture.is_bye
+    assert bye_fixture.home_team == "AMG-ASESORIA JURIDICA EXCAVACIONES TAJO"
+    match_fixture = matchday.fixtures[1]
+    assert not match_fixture.is_bye
+    assert match_fixture.home_team == "REAL TAJO"
+    assert match_fixture.away_team == "IRT ARANJUEZ"
+    assert match_fixture.home_score == 3
+    assert match_fixture.away_score == 0
+    assert match_fixture.date == "2025-10-19"
+    assert match_fixture.time == "13:40"
