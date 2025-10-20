@@ -91,9 +91,10 @@ class MatchdayPdfParser(MatchdayParser):
         pending_scores: tuple[int, int] | None = None
         pending_date: str | None = None
         pending_time: str | None = None
+        awaiting_away: bool = False
 
         def finalize_fixture() -> None:
-            nonlocal pending_home, pending_away, pending_scores, pending_date, pending_time
+            nonlocal pending_home, pending_away, pending_scores, pending_date, pending_time, awaiting_away
             if pending_home is None or pending_away is None:
                 return
             fixtures.append(
@@ -112,13 +113,35 @@ class MatchdayPdfParser(MatchdayParser):
             pending_scores = None
             pending_date = None
             pending_time = None
+            awaiting_away = False
 
         def consume_team_buffer(on_score_line: bool = False) -> None:
-            nonlocal pending_home, pending_away
+            nonlocal pending_home, pending_away, pending_scores, pending_date, pending_time, awaiting_away
             if not team_buffer:
                 return
             fragments = list(team_buffer)
             team_buffer.clear()
+            joined = " ".join(fragments).lower()
+            if "descansa" in joined:
+                finalize_fixture()
+                team_name = self._normalise_team_name(fragments)
+                if team_name:
+                    fixtures.append(
+                        MatchFixture(
+                            home_team=team_name,
+                            away_team=None,
+                            home_score=None,
+                            away_score=None,
+                            is_bye=True,
+                        )
+                    )
+                pending_home = None
+                pending_away = None
+                pending_scores = None
+                pending_date = None
+                pending_time = None
+                awaiting_away = False
+                return
             if on_score_line and pending_home is None and len(fragments) >= 2:
                 home_name = self._normalise_team_name(fragments[:-1])
                 away_name = self._normalise_team_name([fragments[-1]])
@@ -126,17 +149,27 @@ class MatchdayPdfParser(MatchdayParser):
                     pending_home = home_name
                 if away_name:
                     pending_away = away_name
+                    awaiting_away = False
+                else:
+                    awaiting_away = True
                 return
             name = self._normalise_team_name(fragments)
             if not name:
                 return
             if pending_home is None:
                 pending_home = name
-            elif pending_away is None:
+                awaiting_away = awaiting_away or on_score_line
+            elif pending_away is None or awaiting_away:
                 pending_away = name
+                awaiting_away = False
             else:
                 finalize_fixture()
                 pending_home = name
+                pending_away = None
+                pending_scores = None
+                pending_date = None
+                pending_time = None
+                awaiting_away = on_score_line
 
         for raw_line in lines:
             line = self._normalise_whitespace(raw_line)
@@ -199,29 +232,12 @@ class MatchdayPdfParser(MatchdayParser):
                         int(trailing_score_match.group("home_score")),
                         int(trailing_score_match.group("away_score")),
                     )
+                    awaiting_away = False
                 continue
 
-            if lower_line.startswith("descansa"):
+            if "descansa" in lower_line:
+                team_buffer.append(line)
                 consume_team_buffer()
-                finalize_fixture()
-                rest_team = line.split(" ", 1)[1] if " " in line else ""
-                rest_team = rest_team.lstrip(": ")
-                team_name = self._normalise_team_name([rest_team])
-                if team_name:
-                    fixtures.append(
-                        MatchFixture(
-                            home_team=team_name,
-                            away_team=None,
-                            home_score=None,
-                            away_score=None,
-                            is_bye=True,
-                        )
-                    )
-                pending_home = None
-                pending_away = None
-                pending_scores = None
-                pending_date = None
-                pending_time = None
                 continue
 
             score_match = _SCORE_ONLY_RE.match(line)
@@ -230,11 +246,12 @@ class MatchdayPdfParser(MatchdayParser):
                 if pending_home is None and pending_away is None:
                     continue
                 pending_scores = (int(score_match.group("home")), int(score_match.group("away")))
-                if pending_home is not None and pending_away is not None:
-                    finalize_fixture()
+                awaiting_away = pending_away is None
                 continue
 
             if self._is_team_fragment(line):
+                if pending_home is not None and pending_away is not None and not awaiting_away:
+                    finalize_fixture()
                 team_buffer.append(line)
                 continue
 
@@ -281,6 +298,8 @@ class MatchdayPdfParser(MatchdayParser):
         text = _TIME_RE.sub(" ", text)
         if text.lower().startswith("descansa"):
             text = text.split(" ", 1)[1] if " " in text else ""
+        if text.lower().endswith(" descansa"):
+            text = text[: -len(" descansa")]
         text = text.replace("Campo:", " ")
         text = text.replace("Campo", " ")
         text = re.sub(r"\s+", " ", text)
