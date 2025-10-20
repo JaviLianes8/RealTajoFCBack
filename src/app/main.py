@@ -19,12 +19,15 @@ from app.application.process_classification import (
     RetrieveClassificationUseCase,
 )
 from app.application.process_matchday import (
+    LatestMatchdayNotFoundError,
+    LatestMatchdayNumberMismatchError,
     DeleteLatestMatchdayUseCase,
     DeleteMatchdayUseCase,
     MatchdayParser,
     ProcessMatchdayUseCase,
     RetrieveLatestMatchdayUseCase,
     RetrieveMatchdayUseCase,
+    UpdateLatestMatchdayUseCase,
 )
 from app.application.process_document import (
     DocumentParser,
@@ -144,6 +147,7 @@ def create_app(
     latest_matchday_retriever = RetrieveLatestMatchdayUseCase(matchday_repository)
     matchday_deleter = DeleteMatchdayUseCase(matchday_repository)
     latest_matchday_deleter = DeleteLatestMatchdayUseCase(matchday_repository)
+    latest_matchday_updater = UpdateLatestMatchdayUseCase(matchday_repository)
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
@@ -319,6 +323,33 @@ def create_app(
                 detail="No processed matchdays available.",
             )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @api_router.put("/matchdays/last/modify", status_code=status.HTTP_200_OK)
+    async def modify_latest_matchday(payload: dict) -> dict:
+        """Replace the stored latest matchday with the provided payload."""
+
+        try:
+            matchday = Matchday.from_dict(payload)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+
+        try:
+            updated_matchday = latest_matchday_updater.execute(matchday)
+        except LatestMatchdayNotFoundError as error:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(error),
+            ) from error
+        except LatestMatchdayNumberMismatchError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(error),
+            ) from error
+
+        return _serialize_matchday(updated_matchday)
 
     @api_router.delete("/matchdays/{number}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_matchday(number: int) -> Response:

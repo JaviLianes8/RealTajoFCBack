@@ -31,6 +31,39 @@ class ProcessMatchdayUseCase:
         return matchday
 
 
+class LatestMatchdayNotFoundError(Exception):
+    """Signal that no latest matchday exists to be updated."""
+
+
+class LatestMatchdayNumberMismatchError(Exception):
+    """Signal that the provided matchday does not match the stored latest one."""
+
+
+class UpdateLatestMatchdayUseCase:
+    """Replace the persisted data for the latest available matchday."""
+
+    def __init__(self, repository: MatchdayRepository) -> None:
+        """Initialize the use case with the repository dependency."""
+
+        self._repository = repository
+
+    def execute(self, matchday: Matchday) -> Matchday:
+        """Persist ``matchday`` replacing the stored latest matchday."""
+
+        latest = self._repository.get_last()
+        if latest is None:
+            raise LatestMatchdayNotFoundError(
+                "No processed matchdays available to modify."
+            )
+        if latest.number != matchday.number:
+            raise LatestMatchdayNumberMismatchError(
+                "The provided matchday number does not match the latest stored matchday."
+            )
+
+        self._repository.save(matchday)
+        return matchday
+
+
 class RetrieveMatchdayUseCase:
     """Retrieve a stored matchday identified by its ordinal number."""
 

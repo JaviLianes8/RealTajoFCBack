@@ -141,3 +141,97 @@ def test_delete_matchday_endpoints() -> None:
     delete_latest = client.delete("/api/v1/matchdays/last")
     assert delete_latest.status_code == 204
     assert repository.get(2) is None
+
+
+def test_modify_latest_matchday_endpoint() -> None:
+    """Modifying the latest matchday should replace its stored data."""
+
+    repository = _InMemoryMatchdayRepository()
+    existing = Matchday(
+        number=2,
+        fixtures=[
+            MatchFixture(
+                home_team="REAL TAJO",
+                away_team="Team A",
+                home_score=1,
+                away_score=0,
+            )
+        ],
+    )
+    repository.save(existing)
+    app = create_app(matchday_parser=_StubMatchdayParser(existing), matchday_repo=repository)
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": 2,
+        "fixtures": [
+            {
+                "homeTeam": "REAL TAJO",
+                "awayTeam": "Team B",
+                "homeScore": 3,
+                "awayScore": 1,
+                "isBye": False,
+                "date": "2025-10-19",
+                "time": "13:40",
+            }
+        ],
+    }
+
+    response = client.put("/api/v1/matchdays/last/modify", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == Matchday.from_dict(payload).to_dict(team_name="REAL TAJO")
+    stored = repository.get(2)
+    assert stored == Matchday.from_dict(payload)
+
+
+def test_modify_latest_matchday_returns_conflict_on_mismatch() -> None:
+    """Providing a different matchday number should raise a conflict error."""
+
+    repository = _InMemoryMatchdayRepository()
+    repository.save(Matchday(number=3, fixtures=[]))
+    app = create_app(matchday_parser=_StubMatchdayParser(Matchday(3, [])), matchday_repo=repository)
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": 4,
+        "fixtures": [],
+    }
+
+    response = client.put("/api/v1/matchdays/last/modify", json=payload)
+
+    assert response.status_code == 409
+
+
+def test_modify_latest_matchday_returns_not_found_when_absent() -> None:
+    """Attempting to modify without stored matchdays should return not found."""
+
+    app = create_app(matchday_parser=_StubMatchdayParser(Matchday(1, [])), matchday_repo=_InMemoryMatchdayRepository())
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": 1,
+        "fixtures": [],
+    }
+
+    response = client.put("/api/v1/matchdays/last/modify", json=payload)
+
+    assert response.status_code == 404
+
+
+def test_modify_latest_matchday_returns_bad_request_on_invalid_payload() -> None:
+    """Invalid payloads should result in a ``400`` response."""
+
+    repository = _InMemoryMatchdayRepository()
+    repository.save(Matchday(number=1, fixtures=[]))
+    app = create_app(matchday_parser=_StubMatchdayParser(Matchday(1, [])), matchday_repo=repository)
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": "not-a-number",
+        "fixtures": [],
+    }
+
+    response = client.put("/api/v1/matchdays/last/modify", json=payload)
+
+    assert response.status_code == 400
