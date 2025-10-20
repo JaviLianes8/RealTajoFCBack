@@ -164,6 +164,23 @@ def test_recovers_stats_when_numbers_are_concatenated() -> None:
     assert stats["sanction_points"] == 0
 
 
+def test_prefers_goal_totals_consistent_with_match_outcomes() -> None:
+    document = build_document(
+        "Equipos Partidos GolesÚltimosSanción",
+        "PuntosJ.G.E.P.F.C. Puntos",
+        "9RACING ARANJUEZ 02002210 P P 0",
+    )
+
+    table = extract_classification(document)
+    stats = table.rows[0].stats
+
+    assert stats["wins"] == 0
+    assert stats["draws"] == 0
+    assert stats["losses"] == 2
+    assert stats["goals_for"] == 2
+    assert stats["goals_against"] == 10
+
+
 def test_recovers_multi_digit_statistics() -> None:
     document = build_document(
         "Equipos Partidos GolesÚltimosSanción",

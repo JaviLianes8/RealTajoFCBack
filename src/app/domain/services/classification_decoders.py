@@ -168,7 +168,17 @@ class StatisticsDecoder:
         if len(values) < len(self._stat_keys):
             return False
 
-        points, played, wins, draws, losses, *_rest, last_points, sanction = values
+        (
+            points,
+            played,
+            wins,
+            draws,
+            losses,
+            goals_for,
+            goals_against,
+            last_points,
+            sanction,
+        ) = values[:9]
 
         if played != wins + draws + losses:
             return False
@@ -182,6 +192,14 @@ class StatisticsDecoder:
 
         if last_points < 0 or sanction < 0:
             return False
+
+        if played > 0:
+            if wins == played and goals_for <= goals_against:
+                return False
+            if losses == played and goals_for >= goals_against:
+                return False
+            if draws == played and goals_for != goals_against:
+                return False
 
         return True
 
