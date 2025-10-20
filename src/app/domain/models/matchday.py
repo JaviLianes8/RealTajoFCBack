@@ -95,9 +95,14 @@ class MatchFixture:
 
         if home_contains and not away_contains:
             opponent = _extract_opponent_segment(self.home_team, team_name)
+            if opponent:
+                return {
+                    "homeTeam": opponent,
+                    "awayTeam": team_name,
+                }
             return {
-                "homeTeam": opponent or self.home_team,
-                "awayTeam": team_name,
+                "homeTeam": self.home_team,
+                "awayTeam": self.away_team,
             }
         if away_contains and not home_contains:
             opponent = _extract_opponent_segment(self.away_team, team_name)

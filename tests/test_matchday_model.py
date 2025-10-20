@@ -90,3 +90,29 @@ def test_to_dict_preserves_real_tajo_variants_without_splitting() -> None:
     assert fixture_payload["homeTeam"] == "RACING ARANJUEZ"
     assert fixture_payload["awayTeam"] == "REAL TAJO"
     assert "date" in fixture_payload and "time" in fixture_payload
+
+
+def test_to_dict_preserves_explicit_home_fixture_for_real_tajo() -> None:
+    """Serializing should retain manual assignments when Real Tajo is already the home side."""
+
+    matchday = Matchday(
+        number=5,
+        fixtures=[
+            MatchFixture(
+                home_team="REAL TAJO",
+                away_team="REAL SPORT",
+                home_score=3,
+                away_score=0,
+                date="2025-10-19",
+                time="13:40",
+            )
+        ],
+    )
+
+    payload = matchday.to_dict(team_name="REAL TAJO")
+
+    fixture_payload = payload["fixtures"][0]
+    assert fixture_payload["homeTeam"] == "REAL TAJO"
+    assert fixture_payload["awayTeam"] == "REAL SPORT"
+    assert fixture_payload["homeScore"] == 3
+    assert fixture_payload["awayScore"] == 0
