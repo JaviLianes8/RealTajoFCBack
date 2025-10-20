@@ -123,6 +123,7 @@ class MatchdayPdfParser(MatchdayParser):
             team_buffer.clear()
             joined = " ".join(fragments).lower()
             if "descansa" in joined:
+                finalize_fixture()
                 team_name = self._normalise_team_name(fragments)
                 if team_name:
                     fixtures.append(

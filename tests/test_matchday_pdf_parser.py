@@ -207,3 +207,33 @@ def test_parser_handles_descansa_suffix_and_post_score_away_team() -> None:
     assert match_fixture.away_score == 0
     assert match_fixture.date == "2025-10-19"
     assert match_fixture.time == "13:40"
+
+
+def test_parser_finalizes_fixture_before_bye_block() -> None:
+    """Parser should not drop the previous fixture when a bye follows immediately."""
+
+    page = DocumentPage(
+        number=1,
+        content=[
+            "Jornada 12",
+            "Resultados",
+            "TEAM A",
+            "TEAM B",
+            "1 - 0",
+            "TEAM X Descansa",
+        ],
+    )
+    document = ParsedDocument(pages=[page])
+    parser = MatchdayPdfParser(document_parser=_StubDocumentParser(document))
+
+    matchday = parser.parse(b"dummy")
+
+    assert len(matchday.fixtures) == 2
+    first_fixture, bye_fixture = matchday.fixtures
+    assert not first_fixture.is_bye
+    assert first_fixture.home_team == "TEAM A"
+    assert first_fixture.away_team == "TEAM B"
+    assert first_fixture.home_score == 1
+    assert first_fixture.away_score == 0
+    assert bye_fixture.is_bye
+    assert bye_fixture.home_team == "TEAM X"
