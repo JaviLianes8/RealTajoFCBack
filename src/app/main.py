@@ -1,6 +1,9 @@
 """Application entry point defining the HTTP API."""
 from __future__ import annotations
 
+import asyncio
+import json
+from collections.abc import AsyncIterator
 from typing import Awaitable, Callable, Protocol
 
 from fastapi import (
@@ -13,6 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from app.application.process_classification import (
     ProcessClassificationUseCase,
@@ -39,6 +43,7 @@ from app.application.process_real_tajo_calendar import (
     RealTajoCalendarParser,
     RetrieveRealTajoCalendarUseCase,
 )
+from app.application.retrieve_online_players import RetrieveOnlinePlayersUseCase
 from app.application.process_top_scorers import (
     ProcessTopScorersUseCase,
     RetrieveTopScorersUseCase,
@@ -49,6 +54,7 @@ from app.domain.models.matchday import Matchday
 from app.domain.repositories.classification_repository import ClassificationRepository
 from app.domain.repositories.document_repository import DocumentRepository
 from app.domain.repositories.matchday_repository import MatchdayRepository
+from app.domain.repositories.online_player_repository import OnlinePlayerRepository
 from app.domain.repositories.real_tajo_calendar_repository import (
     RealTajoCalendarRepository,
 )
@@ -73,6 +79,9 @@ from app.infrastructure.parsers.top_scorers_excel_parser import TopScorersExcelP
 from app.infrastructure.repositories.json_top_scorers_repository import (
     JsonTopScorersRepository,
 )
+from app.infrastructure.repositories.minecraft_log_online_player_repository import (
+    MinecraftLogOnlinePlayerRepository,
+)
 
 
 REAL_TAJO_TEAM_NAME = "REAL TAJO"
@@ -88,6 +97,7 @@ def create_app(
     top_scorers_repo: TopScorersRepository | None = None,
     matchday_parser: MatchdayParser | None = None,
     matchday_repo: MatchdayRepository | None = None,
+    online_player_repo: OnlinePlayerRepository | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application instance."""
 
@@ -112,6 +122,11 @@ def create_app(
         matchday_repo
         if matchday_repo is not None
         else JsonMatchdayRepository(settings.matchdays_directory)
+    )
+    online_players_repository = (
+        online_player_repo
+        if online_player_repo is not None
+        else MinecraftLogOnlinePlayerRepository(settings.minecraft_log_path)
     )
 
     classification_extractor = ClassificationExtractorService()
@@ -148,6 +163,7 @@ def create_app(
     matchday_deleter = DeleteMatchdayUseCase(matchday_repository)
     latest_matchday_deleter = DeleteLatestMatchdayUseCase(matchday_repository)
     latest_matchday_updater = UpdateLatestMatchdayUseCase(matchday_repository)
+    online_players_retriever = RetrieveOnlinePlayersUseCase(online_players_repository)
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
@@ -273,6 +289,43 @@ def create_app(
                 detail="No processed top scorers document available.",
             )
         return table.to_dict()
+
+    @api_router.get("/minecraft/online-players", status_code=status.HTTP_200_OK)
+    async def get_online_players() -> dict:
+        """Return the players currently connected to the Minecraft server."""
+
+        sessions = online_players_retriever.execute()
+        return {"players": [session.to_dict() for session in sessions]}
+
+    @api_router.get("/minecraft/online-players/stream", status_code=status.HTTP_200_OK)
+    async def stream_online_players() -> StreamingResponse:
+        """Stream the list of online players using Server-Sent Events."""
+
+        async def event_generator() -> AsyncIterator[str]:
+            """Yield SSE payloads whenever the online players list changes."""
+
+            previous_payload: str | None = None
+            keepalive_comment = ": keep-alive\n\n"
+            try:
+                while True:
+                    sessions = online_players_retriever.execute()
+                    payload = json.dumps(
+                        {"players": [session.to_dict() for session in sessions]}
+                    )
+                    if payload != previous_payload:
+                        previous_payload = payload
+                        yield f"data: {payload}\n\n"
+                    else:
+                        yield keepalive_comment
+                    await asyncio.sleep(
+                        settings.online_players_poll_interval_seconds
+                    )
+            except asyncio.CancelledError:  # pragma: no cover - generator cleanup
+                return
+
+        return StreamingResponse(
+            event_generator(), media_type="text/event-stream"
+        )
 
     def _serialize_matchday(matchday: Matchday) -> dict:
         """Return the Real Tajo-focused serialization for ``matchday``."""
