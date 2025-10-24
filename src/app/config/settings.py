@@ -17,10 +17,13 @@ class Settings:
     real_tajo_calendar_filename: str = "real_tajo_calendar.json"
     top_scorers_filename: str = "top_scorers.json"
     matchdays_directory_name: str = "matchdays"
+    minecraft_log_filename: str = "latest.log"
+    minecraft_log_directory_name: str = "minecraft"
     app_version: str = "0.1.0"
     api_version: str = "v1"
     allowed_origins: Tuple[str, ...] = ("*",)
     max_upload_size_mb: int = 10
+    online_players_poll_interval_seconds: float = 5.0
 
     @property
     def classification_path(self) -> Path:
@@ -51,6 +54,16 @@ class Settings:
         """Return the directory where matchday JSON files are stored."""
 
         return self.data_dir / self.matchdays_directory_name
+
+    @property
+    def minecraft_log_path(self) -> Path:
+        """Return the path to the Minecraft server log file."""
+
+        return (
+            self.data_dir
+            / self.minecraft_log_directory_name
+            / self.minecraft_log_filename
+        )
 
     @property
     def api_prefix(self) -> str:
