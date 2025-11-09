@@ -99,9 +99,9 @@ class RealTajoMatch:
 
     stage: str
     matchday: int
-    match_date: date
     opponent: str
     is_home: bool
+    match_date: Optional[date] = None
     kickoff_time: Optional[str] = None
     field: Optional[str] = None
 
@@ -111,7 +111,7 @@ class RealTajoMatch:
         return {
             "stage": self.stage,
             "matchday": self.matchday,
-            "date": self.match_date.isoformat(),
+            "date": self.match_date.isoformat() if self.match_date else None,
             "opponent": self.opponent,
             "is_home": self.is_home,
             "time": self.kickoff_time,
@@ -123,7 +123,7 @@ class RealTajoMatch:
         """Create a match instance from a dictionary representation."""
 
         raw_date = data.get("date")
-        parsed_date = None
+        parsed_date: Optional[date] = None
         if isinstance(raw_date, str):
             try:
                 parsed_date = datetime.strptime(raw_date, "%Y-%m-%d").date()
@@ -139,9 +139,9 @@ class RealTajoMatch:
         return cls(
             stage=str(data.get("stage", "")),
             matchday=matchday,
-            match_date=parsed_date or date.min,
             opponent=str(data.get("opponent", "")),
             is_home=bool(data.get("is_home", False)),
+            match_date=parsed_date,
             kickoff_time=_sanitize_optional_str(data.get("time")),
             field=_sanitize_optional_str(data.get("field")),
         )
