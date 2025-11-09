@@ -31,6 +31,21 @@ class ProcessMatchdayUseCase:
         return matchday
 
 
+class StoreMatchdayUseCase:
+    """Persist a matchday aggregate provided directly as a domain object."""
+
+    def __init__(self, repository: MatchdayRepository) -> None:
+        """Initialize the use case with the repository dependency."""
+
+        self._repository = repository
+
+    def execute(self, matchday: Matchday) -> Matchday:
+        """Persist ``matchday`` and return the stored aggregate."""
+
+        self._repository.save(matchday)
+        return matchday
+
+
 class LatestMatchdayNotFoundError(Exception):
     """Signal that no latest matchday exists to be updated."""
 

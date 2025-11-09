@@ -28,6 +28,7 @@ from app.application.process_matchday import (
     ProcessMatchdayUseCase,
     RetrieveLatestMatchdayUseCase,
     RetrieveMatchdayUseCase,
+    StoreMatchdayUseCase,
     UpdateLatestMatchdayUseCase,
 )
 from app.application.process_document import ProcessDocumentUseCase, RetrieveDocumentUseCase
@@ -117,6 +118,7 @@ def create_app(
         matchday_parser_service,
         matchday_repository,
     )
+    matchday_store = StoreMatchdayUseCase(matchday_repository)
     matchday_retriever = RetrieveMatchdayUseCase(matchday_repository)
     latest_matchday_retriever = RetrieveLatestMatchdayUseCase(matchday_repository)
     matchday_deleter = DeleteMatchdayUseCase(matchday_repository)
@@ -248,6 +250,24 @@ def create_app(
         matchday = _execute_processor(matchday_processor.execute, pdf_bytes)
         response.headers["Location"] = f"{settings.api_prefix}/matchdays/{matchday.number}"
         return _serialize_matchday(matchday)
+
+    @api_router.post("/matchdays/last", status_code=status.HTTP_201_CREATED)
+    async def save_latest_matchday(
+        response: Response, payload: dict[str, Any] = Body(...)
+    ) -> dict:
+        """Persist the provided matchday JSON payload and return its serialization."""
+
+        try:
+            matchday = Matchday.from_dict(payload)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+
+        stored_matchday = matchday_store.execute(matchday)
+        response.headers["Location"] = f"{settings.api_prefix}/matchdays/{matchday.number}"
+        return _serialize_matchday(stored_matchday)
 
     @api_router.get("/matchdays/last", status_code=status.HTTP_200_OK)
     async def get_latest_matchday() -> dict:

@@ -32,6 +32,9 @@ All endpoints are exposed under the API prefix configured via `API_PREFIX` (defa
 - `GET /real-tajo/calendar`: retrieve the most recently stored Real Tajo calendar.
 - `PUT /top-scorers`: store the latest top scorers table.
 - `GET /top-scorers`: retrieve the most recently stored top scorers table.
+- `PUT /matchdays`: upload and parse a matchday PDF document.
+- `POST /matchdays/last`: store a matchday JSON payload as the latest record.
+- `GET /matchdays/last`: retrieve the latest stored matchday focusing on Real Tajo.
 
 ### JSON payload specifications
 
@@ -194,3 +197,24 @@ The following sections describe the exact JSON structures expected by each uploa
 ```
 
 All properties are optional unless the example demonstrates otherwise, but the object hierarchy and field names must match exactly. Dates must be formatted as `YYYY-MM-DD` and boolean fields should be standard JSON booleans.
+
+#### `POST /matchdays/last`
+
+```json
+{
+  "matchdayNumber": 3,
+  "fixtures": [
+    {
+      "homeTeam": "LA VESPA",
+      "awayTeam": "REAL TAJO",
+      "homeScore": 0,
+      "awayScore": 1,
+      "isBye": false,
+      "date": "2025-10-25",
+      "time": "17:00"
+    }
+  ]
+}
+```
+
+Provide the same structure produced by the existing PDF processing flow. The service stores the payload as-is and exposes it immediately through `GET /matchdays/last`.

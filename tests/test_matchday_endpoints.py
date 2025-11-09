@@ -104,6 +104,44 @@ def test_upload_and_retrieve_matchday_endpoints() -> None:
     assert latest.json() == expected_payload
 
 
+def test_save_latest_matchday_endpoint() -> None:
+    """Posting a matchday payload should persist and expose it as latest."""
+
+    repository = _InMemoryMatchdayRepository()
+    app = create_app(
+        matchday_parser=_StubMatchdayParser(Matchday(1, [])),
+        matchday_repo=repository,
+    )
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": 3,
+        "fixtures": [
+            {
+                "homeTeam": "LA VESPA",
+                "awayTeam": "REAL TAJO",
+                "homeScore": 0,
+                "awayScore": 1,
+                "isBye": False,
+                "date": "2025-10-25",
+                "time": "17:00",
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/matchdays/last", json=payload)
+
+    assert response.status_code == 201
+    expected = Matchday.from_dict(payload).to_dict(team_name="REAL TAJO")
+    assert response.json() == expected
+    assert response.headers["Location"] == "/api/v1/matchdays/3"
+    assert repository.get(3) == Matchday.from_dict(payload)
+
+    latest = client.get("/api/v1/matchdays/last")
+    assert latest.status_code == 200
+    assert latest.json() == expected
+
+
 def test_matchday_endpoints_return_not_found_when_empty() -> None:
     """Retrieving absent matchdays should result in ``404`` responses."""
 
@@ -233,5 +271,25 @@ def test_modify_latest_matchday_returns_bad_request_on_invalid_payload() -> None
     }
 
     response = client.put("/api/v1/matchdays/last/modify", json=payload)
+
+    assert response.status_code == 400
+
+
+def test_save_latest_matchday_returns_bad_request_on_invalid_payload() -> None:
+    """Invalid payloads posted to /matchdays/last should return bad request."""
+
+    repository = _InMemoryMatchdayRepository()
+    app = create_app(
+        matchday_parser=_StubMatchdayParser(Matchday(1, [])),
+        matchday_repo=repository,
+    )
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": "not-a-number",
+        "fixtures": [],
+    }
+
+    response = client.post("/api/v1/matchdays/last", json=payload)
 
     assert response.status_code == 400
