@@ -1,35 +1,23 @@
 """Use cases for processing and retrieving top scorer tables."""
 from __future__ import annotations
+from typing import Any, Mapping
 
-from typing import Protocol
 from app.domain.models.top_scorers import TopScorersTable
 from app.domain.repositories.top_scorer_repository import TopScorersRepository
 
 
-class TopScorersParser(Protocol):
-    """Represent a service able to extract top scorers from PDFs."""
-
-    def parse(self, document_bytes: bytes) -> TopScorersTable:
-        """Return the structured top scorers table contained in the document."""
-
-
 class ProcessTopScorersUseCase:
-    """Handle the ingestion of top scorers PDF documents."""
+    """Handle the ingestion of top scorers payloads."""
 
-    def __init__(
-        self,
-        parser: TopScorersParser,
-        repository: TopScorersRepository,
-    ) -> None:
-        """Initialize the use case with its parsing and persistence dependencies."""
+    def __init__(self, repository: TopScorersRepository) -> None:
+        """Initialize the use case with its persistence dependency."""
 
-        self._parser = parser
         self._repository = repository
 
-    def execute(self, document_bytes: bytes) -> TopScorersTable:
-        """Parse, persist and return the extracted top scorers table."""
+    def execute(self, data: Mapping[str, Any]) -> TopScorersTable:
+        """Persist and return the provided top scorers table."""
 
-        table = self._parser.parse(document_bytes)
+        table = TopScorersTable.from_dict(dict(data))
         self._repository.save(table)
         return table
 

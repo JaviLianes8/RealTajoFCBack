@@ -1,7 +1,7 @@
 """Use cases for processing and retrieving Real Tajo calendar documents."""
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Mapping
 
 from app.domain.models.real_tajo_calendar import RealTajoCalendar
 from app.domain.repositories.real_tajo_calendar_repository import (
@@ -9,30 +9,18 @@ from app.domain.repositories.real_tajo_calendar_repository import (
 )
 
 
-class RealTajoCalendarParser(Protocol):
-    """Represent a service capable of decoding a Real Tajo calendar from PDF bytes."""
-
-    def parse(self, document_bytes: bytes) -> RealTajoCalendar:
-        """Convert raw PDF bytes into a ``RealTajoCalendar`` domain model."""
-
-
 class ProcessRealTajoCalendarUseCase:
-    """Handle ingestion, parsing and persistence of Real Tajo calendars."""
+    """Handle ingestion and persistence of Real Tajo calendars."""
 
-    def __init__(
-        self,
-        parser: RealTajoCalendarParser,
-        repository: RealTajoCalendarRepository,
-    ) -> None:
+    def __init__(self, repository: RealTajoCalendarRepository) -> None:
         """Initialize the use case with its dependencies."""
 
-        self._parser = parser
         self._repository = repository
 
-    def execute(self, document_bytes: bytes) -> RealTajoCalendar:
-        """Parse the calendar PDF and persist the resulting model."""
+    def execute(self, data: Mapping[str, Any]) -> RealTajoCalendar:
+        """Persist the provided calendar payload."""
 
-        calendar = self._parser.parse(document_bytes)
+        calendar = RealTajoCalendar.from_dict(dict(data))
         self._repository.save(calendar)
         return calendar
 

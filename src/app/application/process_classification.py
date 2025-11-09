@@ -1,41 +1,24 @@
 """Use cases for processing and retrieving classification tables."""
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Mapping, Any
 
-from app.application.process_document import DocumentParser
 from app.domain.models.classification import ClassificationTable
-from app.domain.models.document import ParsedDocument
 from app.domain.repositories.classification_repository import ClassificationRepository
 
 
-class ClassificationExtractor(Protocol):
-    """Represent a service able to extract classification data from documents."""
-
-    def extract(self, document: ParsedDocument) -> ClassificationTable:
-        """Return the structured classification table present in ``document``."""
-
-
 class ProcessClassificationUseCase:
-    """Handle classification ingestion from raw PDF bytes."""
+    """Handle classification ingestion from JSON payloads."""
 
-    def __init__(
-        self,
-        parser: DocumentParser,
-        extractor: ClassificationExtractor,
-        repository: ClassificationRepository,
-    ) -> None:
-        """Initialize the use case with its required collaborators."""
+    def __init__(self, repository: ClassificationRepository) -> None:
+        """Initialize the use case with the required repository dependency."""
 
-        self._parser = parser
-        self._extractor = extractor
         self._repository = repository
 
-    def execute(self, document_bytes: bytes) -> ClassificationTable:
-        """Parse, extract and persist the classification table contained in a PDF."""
+    def execute(self, data: Mapping[str, Any]) -> ClassificationTable:
+        """Persist the provided classification data."""
 
-        parsed_document = self._parser.parse(document_bytes)
-        classification_table = self._extractor.extract(parsed_document)
+        classification_table = ClassificationTable.from_dict(dict(data))
         self._repository.save(classification_table)
         return classification_table
 

@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from app.application.process_document import DocumentParser
-from app.application.process_real_tajo_calendar import RealTajoCalendarParser
 from app.domain.models.document import ParsedDocument
 from app.domain.models.real_tajo_calendar import (
     RealTajoCalendar,
@@ -19,7 +18,7 @@ from app.domain.models.real_tajo_calendar import (
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 
 
-class RealTajoCalendarPdfParser(RealTajoCalendarParser):
+class RealTajoCalendarPdfParser:
     """Decode Real Tajo calendar information from uploaded PDF documents."""
 
     def __init__(self, document_parser: DocumentParser | None = None) -> None:
