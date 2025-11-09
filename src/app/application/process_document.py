@@ -1,7 +1,7 @@
 """Use cases for processing and retrieving documents."""
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Mapping, Protocol, Any
 
 from app.domain.models.document import ParsedDocument
 from app.domain.repositories.document_repository import DocumentRepository
@@ -17,14 +17,15 @@ class DocumentParser(Protocol):
 class ProcessDocumentUseCase:
     """Handle the ingestion and persistence of uploaded documents."""
 
-    def __init__(self, parser: DocumentParser, repository: DocumentRepository) -> None:
+    def __init__(self, repository: DocumentRepository) -> None:
         """Initialize the use case with its required dependencies."""
-        self._parser = parser
+
         self._repository = repository
 
-    def execute(self, document_bytes: bytes) -> ParsedDocument:
-        """Parse the incoming document and persist the resulting structure."""
-        parsed_document = self._parser.parse(document_bytes)
+    def execute(self, document_data: Mapping[str, Any]) -> ParsedDocument:
+        """Persist an already parsed document structure."""
+
+        parsed_document = ParsedDocument.from_dict(document_data)
         self._repository.save(parsed_document)
         return parsed_document
 

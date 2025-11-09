@@ -1,11 +1,12 @@
 """Application entry point defining the HTTP API."""
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Protocol
+from typing import Callable, Protocol, Any, TypeVar
 
 from fastapi import (
     APIRouter,
     FastAPI,
+    Body,
     File,
     HTTPException,
     Response,
@@ -29,20 +30,14 @@ from app.application.process_matchday import (
     RetrieveMatchdayUseCase,
     UpdateLatestMatchdayUseCase,
 )
-from app.application.process_document import (
-    DocumentParser,
-    ProcessDocumentUseCase,
-    RetrieveDocumentUseCase,
-)
+from app.application.process_document import ProcessDocumentUseCase, RetrieveDocumentUseCase
 from app.application.process_real_tajo_calendar import (
     ProcessRealTajoCalendarUseCase,
-    RealTajoCalendarParser,
     RetrieveRealTajoCalendarUseCase,
 )
 from app.application.process_top_scorers import (
     ProcessTopScorersUseCase,
     RetrieveTopScorersUseCase,
-    TopScorersParser,
 )
 from app.config.settings import get_settings
 from app.domain.models.matchday import Matchday
@@ -53,14 +48,10 @@ from app.domain.repositories.real_tajo_calendar_repository import (
     RealTajoCalendarRepository,
 )
 from app.domain.repositories.top_scorer_repository import TopScorersRepository
-from app.domain.services.classification_extractor import ClassificationExtractorService
 from app.infrastructure.parsers.pdf_document_parser import PdfDocumentParser
 from app.infrastructure.parsers.matchday_pdf_parser import MatchdayPdfParser
 from app.infrastructure.repositories.json_classification_repository import (
     JsonClassificationRepository,
-)
-from app.infrastructure.parsers.real_tajo_calendar_parser import (
-    RealTajoCalendarPdfParser,
 )
 from app.infrastructure.repositories.json_file_repository import JsonFileRepository
 from app.infrastructure.repositories.json_matchday_repository import (
@@ -69,7 +60,6 @@ from app.infrastructure.repositories.json_matchday_repository import (
 from app.infrastructure.repositories.json_real_tajo_calendar_repository import (
     JsonRealTajoCalendarRepository,
 )
-from app.infrastructure.parsers.top_scorers_excel_parser import TopScorersExcelParser
 from app.infrastructure.repositories.json_top_scorers_repository import (
     JsonTopScorersRepository,
 )
@@ -79,12 +69,9 @@ REAL_TAJO_TEAM_NAME = "REAL TAJO"
 
 
 def create_app(
-    document_parser: DocumentParser | None = None,
     classification_repo: ClassificationRepository | None = None,
     schedule_repo: DocumentRepository | None = None,
-    real_tajo_parser: RealTajoCalendarParser | None = None,
     real_tajo_repo: RealTajoCalendarRepository | None = None,
-    top_scorers_parser: TopScorersParser | None = None,
     top_scorers_repo: TopScorersRepository | None = None,
     matchday_parser: MatchdayParser | None = None,
     matchday_repo: MatchdayRepository | None = None,
@@ -92,7 +79,7 @@ def create_app(
     """Create and configure the FastAPI application instance."""
 
     settings = get_settings()
-    pdf_parser = document_parser or PdfDocumentParser()
+    pdf_parser = PdfDocumentParser()
     classification_repository = (
         classification_repo
         or JsonClassificationRepository(settings.classification_path)
@@ -114,28 +101,15 @@ def create_app(
         else JsonMatchdayRepository(settings.matchdays_directory)
     )
 
-    classification_extractor = ClassificationExtractorService()
-    classification_processor = ProcessClassificationUseCase(
-        pdf_parser,
-        classification_extractor,
-        classification_repository,
-    )
+    classification_processor = ProcessClassificationUseCase(classification_repository)
     classification_retriever = RetrieveClassificationUseCase(classification_repository)
 
-    schedule_processor = ProcessDocumentUseCase(pdf_parser, schedule_repository)
+    schedule_processor = ProcessDocumentUseCase(schedule_repository)
     schedule_retriever = RetrieveDocumentUseCase(schedule_repository)
-    real_tajo_calendar_parser = real_tajo_parser or RealTajoCalendarPdfParser(pdf_parser)
-    real_tajo_calendar_processor = ProcessRealTajoCalendarUseCase(
-        real_tajo_calendar_parser,
-        real_tajo_repository,
-    )
+    real_tajo_calendar_processor = ProcessRealTajoCalendarUseCase(real_tajo_repository)
     real_tajo_calendar_retriever = RetrieveRealTajoCalendarUseCase(real_tajo_repository)
 
-    scorers_parser_service = top_scorers_parser or TopScorersExcelParser()
-    top_scorers_processor = ProcessTopScorersUseCase(
-        scorers_parser_service,
-        scorers_repository,
-    )
+    top_scorers_processor = ProcessTopScorersUseCase(scorers_repository)
     top_scorers_retriever = RetrieveTopScorersUseCase(scorers_repository)
 
     matchday_parser_service = matchday_parser or MatchdayPdfParser(pdf_parser)
@@ -175,17 +149,13 @@ def create_app(
 
     @api_router.put("/classification", status_code=status.HTTP_200_OK)
     async def upload_classification(
-        response: Response, file: UploadFile = File(...)
+        response: Response, payload: dict[str, Any] = Body(...)
     ) -> dict:
-        """Parse and persist the uploaded classification PDF, returning its JSON form."""
+        """Persist the provided classification JSON payload."""
 
-        return await _process_upload(
-            file,
-            response,
-            settings.max_upload_size_bytes,
-            classification_processor.execute,
-            f"{settings.api_prefix}/classification",
-        )
+        classification = _execute_processor(classification_processor.execute, payload)
+        response.headers["Location"] = f"{settings.api_prefix}/classification"
+        return classification.to_dict()
 
     @api_router.get("/classification", status_code=status.HTTP_200_OK)
     async def get_classification() -> dict:
@@ -200,16 +170,14 @@ def create_app(
         return classification_table.to_dict()
 
     @api_router.put("/schedule", status_code=status.HTTP_200_OK)
-    async def upload_schedule(response: Response, file: UploadFile = File(...)) -> dict:
-        """Parse and persist the uploaded schedule PDF, returning its JSON form."""
+    async def upload_schedule(
+        response: Response, payload: dict[str, Any] = Body(...)
+    ) -> dict:
+        """Persist the provided schedule JSON payload."""
 
-        return await _process_upload(
-            file,
-            response,
-            settings.max_upload_size_bytes,
-            schedule_processor.execute,
-            f"{settings.api_prefix}/schedule",
-        )
+        schedule_document = _execute_processor(schedule_processor.execute, payload)
+        response.headers["Location"] = f"{settings.api_prefix}/schedule"
+        return schedule_document.to_dict()
 
     @api_router.get("/schedule", status_code=status.HTTP_200_OK)
     async def get_schedule() -> dict:
@@ -225,17 +193,13 @@ def create_app(
 
     @api_router.put("/real-tajo/calendar", status_code=status.HTTP_200_OK)
     async def upload_real_tajo_calendar(
-        response: Response, file: UploadFile = File(...)
+        response: Response, payload: dict[str, Any] = Body(...)
     ) -> dict:
-        """Parse and persist the uploaded Real Tajo calendar PDF, returning its JSON form."""
+        """Persist the provided Real Tajo calendar JSON payload."""
 
-        return await _process_upload(
-            file,
-            response,
-            settings.max_upload_size_bytes,
-            real_tajo_calendar_processor.execute,
-            f"{settings.api_prefix}/real-tajo/calendar",
-        )
+        calendar = _execute_processor(real_tajo_calendar_processor.execute, payload)
+        response.headers["Location"] = f"{settings.api_prefix}/real-tajo/calendar"
+        return calendar.to_dict()
 
     @api_router.get("/real-tajo/calendar", status_code=status.HTTP_200_OK)
     async def get_real_tajo_calendar() -> dict:
@@ -250,17 +214,14 @@ def create_app(
         return calendar.to_dict()
 
     @api_router.put("/top-scorers", status_code=status.HTTP_200_OK)
-    async def upload_top_scorers(response: Response, file: UploadFile = File(...)) -> dict:
-        """Parse and persist the uploaded top scorers Excel file, returning its JSON form."""
+    async def upload_top_scorers(
+        response: Response, payload: dict[str, Any] = Body(...)
+    ) -> dict:
+        """Persist the provided top scorers JSON payload."""
 
-        return await _process_upload(
-            file,
-            response,
-            settings.max_upload_size_bytes,
-            top_scorers_processor.execute,
-            f"{settings.api_prefix}/top-scorers",
-            _read_excel_bytes,
-        )
+        table = _execute_processor(top_scorers_processor.execute, payload)
+        response.headers["Location"] = f"{settings.api_prefix}/top-scorers"
+        return table.to_dict()
 
     @api_router.get("/top-scorers", status_code=status.HTTP_200_OK)
     async def get_top_scorers() -> dict:
@@ -415,22 +376,6 @@ async def _read_pdf_bytes(uploaded_file: UploadFile, max_size_bytes: int) -> byt
     )
 
 
-async def _read_excel_bytes(uploaded_file: UploadFile, max_size_bytes: int) -> bytes:
-    """Ensure the provided file is an Excel workbook and return its bytes."""
-
-    return await _read_binary_file(
-        uploaded_file,
-        max_size_bytes,
-        {
-            "application/vnd.ms-excel",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        },
-        "The uploaded file must be an Excel workbook.",
-        "The Excel file is empty.",
-        "The Excel file exceeds the allowed size.",
-    )
-
-
 class _SerializableResource(Protocol):
     """Represent an object that can be expressed as a JSON-serializable dictionary."""
 
@@ -438,29 +383,16 @@ class _SerializableResource(Protocol):
         """Return the dictionary representation of the resource."""
 
 
-async def _process_upload(
-    file: UploadFile,
-    response: Response,
-    max_size_bytes: int,
-    processor: Callable[[bytes], _SerializableResource],
-    resource_path: str,
-    reader: Callable[[UploadFile, int], Awaitable[bytes]] = _read_pdf_bytes,
-) -> dict:
-    """Parse, persist and serialize an uploaded document with unified error handling."""
-
-    document_bytes = await reader(file, max_size_bytes)
-    resource = _execute_processor(processor, document_bytes)
-    response.headers["Location"] = resource_path
-    return resource.to_dict()
+_PayloadT = TypeVar("_PayloadT")
 
 
 def _execute_processor(
-    processor: Callable[[bytes], _SerializableResource], document_bytes: bytes
+    processor: Callable[[_PayloadT], _SerializableResource], payload: _PayloadT
 ) -> _SerializableResource:
     """Execute a processor function converting domain ``ValueError`` to HTTP errors."""
 
     try:
-        return processor(document_bytes)
+        return processor(payload)
     except ValueError as processing_error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

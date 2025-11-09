@@ -110,7 +110,6 @@ def _build_xls_loaders() -> List[Callable[[bytes], List[List[Any]]]]:
 
 _XLS_LOADERS = _build_xls_loaders()
 
-from app.application.process_top_scorers import TopScorersParser
 from app.domain.models.top_scorers import TopScorerEntry, TopScorersTable
 
 
@@ -414,7 +413,7 @@ def _parse_goals_cell(value: Any) -> tuple[Optional[int], Optional[int], Optiona
     return total, penalties, details
 
 
-class TopScorersExcelParser(TopScorersParser):
+class TopScorersExcelParser:
     """Decode top scorers information from uploaded Excel spreadsheets."""
 
     def parse(self, document_bytes: bytes) -> TopScorersTable:

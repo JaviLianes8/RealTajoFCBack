@@ -1,6 +1,6 @@
 # RealTajoFCBack
 
-Backend application for processing classification and schedule PDF documents.
+Backend application for processing the Real Tajo club data.
 
 ## Requirements
 
@@ -22,9 +22,175 @@ The server will be available from external networks (if permitted) on port `8765
 
 ## Available endpoints
 
-- `POST /classification/pdf`: upload a classification PDF and persist it as JSON.
-- `GET /classification`: retrieve the most recently processed classification JSON.
-- `POST /schedule/pdf`: upload a schedule PDF and persist it as JSON.
-- `GET /schedule`: retrieve the most recently processed schedule JSON.
+All endpoints are exposed under the API prefix configured via `API_PREFIX` (defaults to `/api`). Upload endpoints now accept JSON payloads that must match the structures produced previously from PDF/Excel conversions.
 
-Each `POST` request responds with the JSON generated from the uploaded PDF.
+- `PUT /classification`: store the latest classification table.
+- `GET /classification`: retrieve the most recently stored classification table.
+- `PUT /schedule`: store the latest competition schedule.
+- `GET /schedule`: retrieve the most recently stored competition schedule.
+- `PUT /real-tajo/calendar`: store the latest Real Tajo calendar.
+- `GET /real-tajo/calendar`: retrieve the most recently stored Real Tajo calendar.
+- `PUT /top-scorers`: store the latest top scorers table.
+- `GET /top-scorers`: retrieve the most recently stored top scorers table.
+
+### JSON payload specifications
+
+The following sections describe the exact JSON structures expected by each upload endpoint. Use the same field names and nesting as shown below.
+
+#### `PUT /classification`
+
+```json
+{
+  "metadata": {
+    "headers": ["Clasificación Liga"],
+    "columns": [
+      {"key": "team", "label": "Equipos"},
+      {"key": "points", "label": "Puntos"},
+      {
+        "key": "matches",
+        "label": "Partidos",
+        "children": [
+          {"key": "played", "label": "J."},
+          {"key": "wins", "label": "G."},
+          {"key": "draws", "label": "E."},
+          {"key": "losses", "label": "P."}
+        ]
+      },
+      {
+        "key": "goals",
+        "label": "Goles",
+        "children": [
+          {"key": "for", "label": "F."},
+          {"key": "against", "label": "C."}
+        ]
+      },
+      {
+        "key": "recent_form",
+        "label": "Últimos",
+        "children": [{"key": "points", "label": "Puntos"}]
+      },
+      {
+        "key": "sanction",
+        "label": "Sanción",
+        "children": [{"key": "points", "label": "Puntos"}]
+      }
+    ]
+  },
+  "teams": [
+    {
+      "position": 1,
+      "team": "REAL TAJO",
+      "points": 42,
+      "matches": {"played": 18, "wins": 14, "draws": 0, "losses": 4},
+      "goals": {"for": 65, "against": 27},
+      "recent_form": {"points": 12},
+      "sanction": {"points": 0},
+      "raw": "1 REAL TAJO 42 pts"
+    }
+  ],
+  "last_match": {
+    "matchday": 18,
+    "date": "2024-02-18",
+    "home_team": {"name": "REAL TAJO", "score": 3},
+    "away_team": {"name": "RIVAL FC", "score": 1}
+  }
+}
+```
+
+#### `PUT /schedule`
+
+```json
+{
+  "pages": [
+    {
+      "number": 1,
+      "content": [
+        "Jornada 1 - REAL TAJO vs RIVAL FC",
+        "Jornada 2 - DESCANSA"
+      ]
+    },
+    {
+      "number": 2,
+      "content": ["Jornada 18 - RIVAL FC vs REAL TAJO"]
+    }
+  ]
+}
+```
+
+#### `PUT /real-tajo/calendar`
+
+```json
+{
+  "competition": "Preferente Grupo 1",
+  "season": "2023-2024",
+  "matches": [
+    {
+      "stage": "Liga",
+      "matchday": 1,
+      "date": "2023-09-10",
+      "opponent": "RIVAL FC",
+      "is_home": true,
+      "time": "18:00",
+      "field": "Campo Municipal"
+    }
+  ],
+  "team_info": {
+    "name": "REAL TAJO",
+    "contact_name": "Coordinador",
+    "phone": "600000000",
+    "address": "C/ Principal s/n",
+    "first_kit": {
+      "shirt": "Azul",
+      "shorts": "Blanco",
+      "socks": "Azul",
+      "shirt_type": "Color sólido",
+      "shorts_type": null,
+      "socks_type": null
+    },
+    "second_kit": {
+      "shirt": "Blanco",
+      "shorts": "Azul",
+      "socks": "Blanco",
+      "shirt_type": null,
+      "shorts_type": null,
+      "socks_type": null
+    }
+  }
+}
+```
+
+#### `PUT /top-scorers`
+
+```json
+{
+  "metadata": {
+    "title": "Goleadores",
+    "competition": "Preferente Grupo 1",
+    "category": "Senior",
+    "season": "2023-2024",
+    "columns": [
+      {"key": "position", "label": "#"},
+      {"key": "player", "label": "Jugador"},
+      {"key": "team", "label": "Equipo"},
+      {"key": "group", "label": "Grupo"},
+      {"key": "matches_played", "label": "Partidos"},
+      {"key": "goals", "label": "Goles"},
+      {"key": "goals_per_match", "label": "Goles/Partido"}
+    ]
+  },
+  "rows": [
+    {
+      "position": 1,
+      "player": "Juan Pérez",
+      "team": "REAL TAJO",
+      "group": "A",
+      "matches_played": 18,
+      "goals": {"total": 22, "details": "15+7", "penalties": 3},
+      "goals_per_match": 1.22,
+      "raw": ["Juan Pérez - 22 goles"]
+    }
+  ]
+}
+```
+
+All properties are optional unless the example demonstrates otherwise, but the object hierarchy and field names must match exactly. Dates must be formatted as `YYYY-MM-DD` and boolean fields should be standard JSON booleans.
