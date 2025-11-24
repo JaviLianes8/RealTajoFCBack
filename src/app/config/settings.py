@@ -13,10 +13,13 @@ class Settings:
 
     data_dir: Path = Path("data")
     classification_filename: str = "classification.json"
+    classification_cup_filename: str = "classification_cup.json"
     schedule_filename: str = "schedule.json"
     real_tajo_calendar_filename: str = "real_tajo_calendar.json"
     top_scorers_filename: str = "top_scorers.json"
+    top_scorers_cup_filename: str = "top_scorers_cup.json"
     matchdays_directory_name: str = "matchdays"
+    cup_matchdays_directory_name: str = "matchdays_cup"
     app_version: str = "0.1.0"
     api_version: str = "v1"
     allowed_origins: Tuple[str, ...] = ("*",)
@@ -27,6 +30,12 @@ class Settings:
         """Return the full path for storing classification data."""
 
         return self.data_dir / self.classification_filename
+
+    @property
+    def classification_cup_path(self) -> Path:
+        """Return the full path for storing cup classification data."""
+
+        return self.data_dir / self.classification_cup_filename
 
     @property
     def schedule_path(self) -> Path:
@@ -47,10 +56,22 @@ class Settings:
         return self.data_dir / self.top_scorers_filename
 
     @property
+    def top_scorers_cup_path(self) -> Path:
+        """Return the storage path for the cup top scorers data."""
+
+        return self.data_dir / self.top_scorers_cup_filename
+
+    @property
     def matchdays_directory(self) -> Path:
         """Return the directory where matchday JSON files are stored."""
 
         return self.data_dir / self.matchdays_directory_name
+
+    @property
+    def cup_matchdays_directory(self) -> Path:
+        """Return the directory where cup matchday JSON files are stored."""
+
+        return self.data_dir / self.cup_matchdays_directory_name
 
     @property
     def api_prefix(self) -> str:

@@ -142,6 +142,43 @@ def test_save_latest_matchday_endpoint() -> None:
     assert latest.json() == expected
 
 
+def test_save_latest_cup_matchday_endpoint() -> None:
+    """Posting a cup matchday payload should persist and expose it as latest."""
+
+    cup_repository = _InMemoryMatchdayRepository()
+    app = create_app(
+        matchday_parser=_StubMatchdayParser(Matchday(1, [])),
+        matchday_repo=_InMemoryMatchdayRepository(),
+        matchday_cup_repo=cup_repository,
+    )
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": 1,
+        "fixtures": [
+            {
+                "homeTeam": "REAL TAJO",
+                "awayTeam": "RIVAL COPA FC",
+                "homeScore": 2,
+                "awayScore": 0,
+                "isBye": False,
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/matchdays/last/copa", json=payload)
+
+    assert response.status_code == 201
+    expected = Matchday.from_dict(payload).to_dict(team_name="REAL TAJO")
+    assert response.json() == expected
+    assert response.headers["Location"] == "/api/v1/matchdays/last/copa"
+    assert cup_repository.get(1) == Matchday.from_dict(payload)
+
+    latest = client.get("/api/v1/matchdays/last/copa")
+    assert latest.status_code == 200
+    assert latest.json() == expected
+
+
 def test_matchday_endpoints_return_not_found_when_empty() -> None:
     """Retrieving absent matchdays should result in ``404`` responses."""
 
@@ -159,6 +196,12 @@ def test_matchday_endpoints_return_not_found_when_empty() -> None:
 
     delete_last = client.delete("/api/v1/matchdays/last")
     assert delete_last.status_code == 404
+
+    last_cup = client.get("/api/v1/matchdays/last/copa")
+    assert last_cup.status_code == 404
+
+    delete_last_cup = client.delete("/api/v1/matchdays/last/copa")
+    assert delete_last_cup.status_code == 404
 
 
 def test_delete_matchday_endpoints() -> None:
@@ -221,6 +264,39 @@ def test_modify_latest_matchday_endpoint() -> None:
     assert response.json() == Matchday.from_dict(payload).to_dict(team_name="REAL TAJO")
     stored = repository.get(2)
     assert stored == Matchday.from_dict(payload)
+
+
+def test_modify_latest_cup_matchday_endpoint() -> None:
+    """Modifying the latest cup matchday should replace its stored data."""
+
+    cup_repository = _InMemoryMatchdayRepository()
+    existing = Matchday(number=4, fixtures=[])
+    cup_repository.save(existing)
+    app = create_app(
+        matchday_parser=_StubMatchdayParser(existing),
+        matchday_repo=_InMemoryMatchdayRepository(),
+        matchday_cup_repo=cup_repository,
+    )
+    client = TestClient(app)
+
+    payload = {
+        "matchdayNumber": 4,
+        "fixtures": [
+            {
+                "homeTeam": "RIVAL COPA FC",
+                "awayTeam": "REAL TAJO",
+                "homeScore": 1,
+                "awayScore": 3,
+                "isBye": False,
+            }
+        ],
+    }
+
+    response = client.put("/api/v1/matchdays/last/modify/copa", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == Matchday.from_dict(payload).to_dict(team_name="REAL TAJO")
+    assert cup_repository.get(4) == Matchday.from_dict(payload)
 
 
 def test_modify_latest_matchday_returns_conflict_on_mismatch() -> None:

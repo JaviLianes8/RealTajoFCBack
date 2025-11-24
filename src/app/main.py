@@ -71,11 +71,14 @@ REAL_TAJO_TEAM_NAME = "REAL TAJO"
 
 def create_app(
     classification_repo: ClassificationRepository | None = None,
+    classification_cup_repo: ClassificationRepository | None = None,
     schedule_repo: DocumentRepository | None = None,
     real_tajo_repo: RealTajoCalendarRepository | None = None,
     top_scorers_repo: TopScorersRepository | None = None,
+    top_scorers_cup_repo: TopScorersRepository | None = None,
     matchday_parser: MatchdayParser | None = None,
     matchday_repo: MatchdayRepository | None = None,
+    matchday_cup_repo: MatchdayRepository | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application instance."""
 
@@ -84,6 +87,10 @@ def create_app(
     classification_repository = (
         classification_repo
         or JsonClassificationRepository(settings.classification_path)
+    )
+    classification_cup_repository = (
+        classification_cup_repo
+        or JsonClassificationRepository(settings.classification_cup_path)
     )
     schedule_repository = schedule_repo or JsonFileRepository(settings.schedule_path)
     real_tajo_repository = (
@@ -96,10 +103,20 @@ def create_app(
         if top_scorers_repo is not None
         else JsonTopScorersRepository(settings.top_scorers_path)
     )
+    scorers_cup_repository = (
+        top_scorers_cup_repo
+        if top_scorers_cup_repo is not None
+        else JsonTopScorersRepository(settings.top_scorers_cup_path)
+    )
     matchday_repository = (
         matchday_repo
         if matchday_repo is not None
         else JsonMatchdayRepository(settings.matchdays_directory)
+    )
+    cup_matchday_repository = (
+        matchday_cup_repo
+        if matchday_cup_repo is not None
+        else JsonMatchdayRepository(settings.cup_matchdays_directory)
     )
 
     classification_processor = ProcessClassificationUseCase(classification_repository)
@@ -113,6 +130,16 @@ def create_app(
     top_scorers_processor = ProcessTopScorersUseCase(scorers_repository)
     top_scorers_retriever = RetrieveTopScorersUseCase(scorers_repository)
 
+    classification_cup_processor = ProcessClassificationUseCase(
+        classification_cup_repository
+    )
+    classification_cup_retriever = RetrieveClassificationUseCase(
+        classification_cup_repository
+    )
+
+    top_scorers_cup_processor = ProcessTopScorersUseCase(scorers_cup_repository)
+    top_scorers_cup_retriever = RetrieveTopScorersUseCase(scorers_cup_repository)
+
     matchday_parser_service = matchday_parser or MatchdayPdfParser(pdf_parser)
     matchday_processor = ProcessMatchdayUseCase(
         matchday_parser_service,
@@ -124,6 +151,19 @@ def create_app(
     matchday_deleter = DeleteMatchdayUseCase(matchday_repository)
     latest_matchday_deleter = DeleteLatestMatchdayUseCase(matchday_repository)
     latest_matchday_updater = UpdateLatestMatchdayUseCase(matchday_repository)
+
+    cup_matchday_store = StoreMatchdayUseCase(cup_matchday_repository)
+    cup_matchday_retriever = RetrieveMatchdayUseCase(cup_matchday_repository)
+    cup_latest_matchday_retriever = RetrieveLatestMatchdayUseCase(
+        cup_matchday_repository
+    )
+    cup_matchday_deleter = DeleteMatchdayUseCase(cup_matchday_repository)
+    cup_latest_matchday_deleter = DeleteLatestMatchdayUseCase(
+        cup_matchday_repository
+    )
+    cup_latest_matchday_updater = UpdateLatestMatchdayUseCase(
+        cup_matchday_repository
+    )
 
     app = FastAPI(title="Document Processor API", version=settings.app_version)
 
@@ -168,6 +208,30 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No processed classification document available.",
+            )
+        return classification_table.to_dict()
+
+    @api_router.put("/classification/copa", status_code=status.HTTP_200_OK)
+    async def upload_classification_cup(
+        response: Response, payload: dict[str, Any] = Body(...)
+    ) -> dict:
+        """Persist the provided cup classification JSON payload."""
+
+        classification = _execute_processor(
+            classification_cup_processor.execute, payload
+        )
+        response.headers["Location"] = f"{settings.api_prefix}/classification/copa"
+        return classification.to_dict()
+
+    @api_router.get("/classification/copa", status_code=status.HTTP_200_OK)
+    async def get_classification_cup() -> dict:
+        """Retrieve the stored cup classification document as JSON."""
+
+        classification_table = classification_cup_retriever.execute()
+        if classification_table is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed cup classification document available.",
             )
         return classification_table.to_dict()
 
@@ -237,6 +301,28 @@ def create_app(
             )
         return table.to_dict()
 
+    @api_router.put("/top-scorers/copa", status_code=status.HTTP_200_OK)
+    async def upload_top_scorers_cup(
+        response: Response, payload: dict[str, Any] = Body(...)
+    ) -> dict:
+        """Persist the provided cup top scorers JSON payload."""
+
+        table = _execute_processor(top_scorers_cup_processor.execute, payload)
+        response.headers["Location"] = f"{settings.api_prefix}/top-scorers/copa"
+        return table.to_dict()
+
+    @api_router.get("/top-scorers/copa", status_code=status.HTTP_200_OK)
+    async def get_top_scorers_cup() -> dict:
+        """Retrieve the stored cup top scorers table as JSON."""
+
+        table = top_scorers_cup_retriever.execute()
+        if table is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed cup top scorers document available.",
+            )
+        return table.to_dict()
+
     def _serialize_matchday(matchday: Matchday) -> dict:
         """Return the Real Tajo-focused serialization for ``matchday``."""
 
@@ -281,6 +367,36 @@ def create_app(
             )
         return _serialize_matchday(matchday)
 
+    @api_router.post("/matchdays/last/copa", status_code=status.HTTP_201_CREATED)
+    async def save_latest_matchday_cup(
+        response: Response, payload: dict[str, Any] = Body(...)
+    ) -> dict:
+        """Persist the provided cup matchday JSON payload and return its serialization."""
+
+        try:
+            matchday = Matchday.from_dict(payload)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+
+        stored_matchday = cup_matchday_store.execute(matchday)
+        response.headers["Location"] = f"{settings.api_prefix}/matchdays/last/copa"
+        return _serialize_matchday(stored_matchday)
+
+    @api_router.get("/matchdays/last/copa", status_code=status.HTTP_200_OK)
+    async def get_latest_matchday_cup() -> dict:
+        """Retrieve the most recently processed cup matchday as JSON."""
+
+        matchday = cup_latest_matchday_retriever.execute()
+        if matchday is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed cup matchdays available.",
+            )
+        return _serialize_matchday(matchday)
+
     @api_router.get("/matchdays/{number}", status_code=status.HTTP_200_OK)
     async def get_matchday(number: int) -> dict:
         """Retrieve the stored matchday identified by ``number`` as JSON."""
@@ -305,6 +421,18 @@ def create_app(
             )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    @api_router.delete("/matchdays/last/copa", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_latest_matchday_cup() -> Response:
+        """Delete the most recently processed cup matchday when available."""
+
+        deleted = cup_latest_matchday_deleter.execute()
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No processed cup matchdays available.",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @api_router.put("/matchdays/last/modify", status_code=status.HTTP_200_OK)
     async def modify_latest_matchday(payload: dict) -> dict:
         """Replace the stored latest matchday with the provided payload."""
@@ -319,6 +447,33 @@ def create_app(
 
         try:
             updated_matchday = latest_matchday_updater.execute(matchday)
+        except LatestMatchdayNotFoundError as error:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(error),
+            ) from error
+        except LatestMatchdayNumberMismatchError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(error),
+            ) from error
+
+        return _serialize_matchday(updated_matchday)
+
+    @api_router.put("/matchdays/last/modify/copa", status_code=status.HTTP_200_OK)
+    async def modify_latest_matchday_cup(payload: dict) -> dict:
+        """Replace the stored latest cup matchday with the provided payload."""
+
+        try:
+            matchday = Matchday.from_dict(payload)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+
+        try:
+            updated_matchday = cup_latest_matchday_updater.execute(matchday)
         except LatestMatchdayNotFoundError as error:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
