@@ -40,6 +40,8 @@ def _build_metadata(*, competition: str | None, season: str | None) -> dict[str,
 
 SEASON_PATTERN = re.compile(r"Temporada\s+(\d{4}-\d{4})", re.I)
 COMPETITION_PATTERN = re.compile(r"LIGA[^|]+?F-11[^|]*", re.I)
+PENALTIES_PATTERN = re.compile(r"(\d+)\s*de\s*penalti", re.I)
+LEADING_INT_PATTERN = re.compile(r"\d+")
 
 
 def _extract_competition_and_season(soup: BeautifulSoup) -> tuple[str | None, str | None]:
@@ -70,12 +72,14 @@ def _extract_rows(soup: BeautifulSoup) -> list[dict[str, Any]]:
         cells = [c for c in cells if c != ""]
         if len(cells) < 5:
             continue
+        goals_total, penalties, goals_details = _parse_goals_cell(cells[-2])
+        if goals_total is None:
+            continue
         try:
             matches_played = int(cells[-3])
-            goals_total = int(cells[-2])
-            goals_per_match = _parse_decimal(cells[-1])
         except ValueError:
             continue
+        goals_per_match = _parse_decimal(cells[-1])
         player = cells[0]
         team = cells[1] if len(cells) >= 5 else ""
         group = cells[2] if len(cells) >= 5 else ""
@@ -86,12 +90,31 @@ def _extract_rows(soup: BeautifulSoup) -> list[dict[str, Any]]:
                 "team": team,
                 "group": group,
                 "matches_played": matches_played,
-                "goals": {"total": goals_total, "details": None, "penalties": 0},
+                "goals": {
+                    "total": goals_total,
+                    "details": goals_details,
+                    "penalties": penalties,
+                },
                 "goals_per_match": goals_per_match,
                 "raw": [" ".join(cells)],
             }
         )
     return rows
+
+
+def _parse_goals_cell(text: str) -> tuple[int | None, int, str | None]:
+    """Extract total goals and penalty goals from cells like ``"8 (1 de penalti)"``."""
+
+    if not text:
+        return None, 0, None
+    number_match = LEADING_INT_PATTERN.search(text)
+    if not number_match:
+        return None, 0, None
+    total = int(number_match.group(0))
+    penalty_match = PENALTIES_PATTERN.search(text)
+    penalties = int(penalty_match.group(1)) if penalty_match else 0
+    details = text if penalty_match else None
+    return total, penalties, details
 
 
 def _find_target_table(soup: BeautifulSoup) -> Any:

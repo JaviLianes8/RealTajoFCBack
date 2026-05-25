@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -141,6 +142,7 @@ def main() -> int:
         return 0
 
     http_client = _build_http_client(config)
+    _warm_up_back(http_client, config.back_base_url, log)
 
     tasks: list[tuple[str, str, str, dict[str, Any]]] = [
         ("PUT", "/classification", "classification", classification_payload),
@@ -153,10 +155,8 @@ def main() -> int:
     failures = 0
     for method, path, label, payload in tasks:
         full_url = f"{config.back_base_url.rstrip('/')}{config.back_api_prefix}{path}"
-        try:
-            response = http_client.request(method, full_url, json=payload, timeout=30)
-        except requests.RequestException as error:
-            log.error("[%s] network error: %s", label, error)
+        response = _request_with_retry(http_client, method, full_url, payload, label, log)
+        if response is None:
             failures += 1
             continue
         if response.status_code >= 400:
@@ -173,6 +173,55 @@ def main() -> int:
             log.info("[%s] %s %s -> %s OK", label, method, path, response.status_code)
 
     return 0 if failures == 0 else 1
+
+
+WARMUP_TIMEOUT_SECONDS = 90
+REQUEST_TIMEOUT_SECONDS = 60
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_BASE_SECONDS = 5
+
+
+def _warm_up_back(http_client: requests.Session, base_url: str, log: logging.Logger) -> None:
+    """Ping the back's root once to wake Azure App Service before posting payloads."""
+
+    url = f"{base_url.rstrip('/')}/"
+    log.info("Warming up back at %s (timeout=%ds)", url, WARMUP_TIMEOUT_SECONDS)
+    try:
+        http_client.get(url, timeout=WARMUP_TIMEOUT_SECONDS)
+    except requests.RequestException as error:
+        log.warning("warmup ping failed (continuing): %s", error)
+
+
+def _request_with_retry(
+    http_client: requests.Session,
+    method: str,
+    url: str,
+    payload: dict[str, Any],
+    label: str,
+    log: logging.Logger,
+) -> requests.Response | None:
+    """Send the request retrying transient network errors with exponential backoff."""
+
+    last_error: Exception | None = None
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            return http_client.request(method, url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
+        except requests.RequestException as error:
+            last_error = error
+            if attempt == RETRY_ATTEMPTS:
+                break
+            sleep_seconds = RETRY_BACKOFF_BASE_SECONDS * attempt
+            log.warning(
+                "[%s] attempt %d/%d failed (%s), retrying in %ds",
+                label,
+                attempt,
+                RETRY_ATTEMPTS,
+                error,
+                sleep_seconds,
+            )
+            time.sleep(sleep_seconds)
+    log.error("[%s] network error after %d attempts: %s", label, RETRY_ATTEMPTS, last_error)
+    return None
 
 
 def _build_http_client(config: Config) -> requests.Session:
