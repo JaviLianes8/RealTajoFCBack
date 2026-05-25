@@ -20,6 +20,59 @@ uvicorn app.main:app --host 0.0.0.0 --port 8765
 
 The server will be available from external networks (if permitted) on port `8765`.
 
+## Automated scraping (ffmadrid.es → back)
+
+The `scripts/run_scraper.py` CLI logs into the federation portal, scrapes the
+classification, latest matchday, top scorers and Real Tajo calendar, and pushes
+each JSON payload to the back's `PUT/POST` endpoints. The GitHub Actions
+workflow `.github/workflows/scrape.yml` runs it every 12 hours.
+
+### Required GitHub repository secrets
+
+| Secret | Value |
+|---|---|
+| `FFMADRID_USER` | Club login at aranjuez.ffmadrid.es |
+| `FFMADRID_PASS` | Password for the above |
+| `BACK_API_KEY` | Shared secret sent as `X-API-Key` header to the back |
+
+### Required env vars in production (Azure App Service)
+
+| Variable | Purpose |
+|---|---|
+| `BACK_API_KEY` | Same value as the GitHub secret. When unset the back logs a warning and **leaves mutating endpoints unprotected**. |
+
+### Federation codes (hardcoded in the workflow)
+
+The current season uses:
+
+- `FFMADRID_COD_PRIMARIA=1000128`
+- `FFMADRID_COD_COMPETICION=1009587`
+- `FFMADRID_COD_GRUPO=1009597`
+- `FFMADRID_COD_TEMPORADA=21` ← change each new season
+
+When the season changes, edit those values in `.github/workflows/scrape.yml`.
+
+### Running the scraper locally
+
+Copy `.env.example` to `.env` and fill it in. Then:
+
+```bash
+# Dry run: scrape only, do not push to back
+DRY_RUN=1 python scripts/run_scraper.py
+
+# Real run: scrape + push
+python scripts/run_scraper.py
+```
+
+If your network injects a self-signed root certificate (corporate proxy), use
+`POC_INSECURE_TLS=1` to skip TLS verification (local only, never in CI).
+
+### Triggering the workflow manually
+
+From the GitHub Actions tab, open "Scrape ffmadrid and push to back" and click
+**Run workflow**. Logs show how many teams, fixtures, scorers and matches were
+extracted and the HTTP response from each back endpoint.
+
 ## Available endpoints
 
 All endpoints are exposed under the API prefix configured via `API_PREFIX` (defaults to `/api`). Upload endpoints now accept JSON payloads that must match the structures produced previously from PDF/Excel conversions.

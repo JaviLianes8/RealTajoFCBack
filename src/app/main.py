@@ -1,6 +1,8 @@
 """Application entry point defining the HTTP API."""
 from __future__ import annotations
 
+import logging
+import os
 from typing import Callable, Protocol, Any, TypeVar
 
 from fastapi import (
@@ -9,11 +11,13 @@ from fastapi import (
     Body,
     File,
     HTTPException,
+    Request,
     Response,
     UploadFile,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.application.process_classification import (
     ProcessClassificationUseCase,
@@ -180,6 +184,8 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    _install_api_key_guard(app, prefix=settings.api_prefix)
 
     api_router = APIRouter(prefix=settings.api_prefix)
 
@@ -501,6 +507,39 @@ def create_app(
 
     app.include_router(api_router)
     return app
+
+
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _install_api_key_guard(app: FastAPI, *, prefix: str) -> None:
+    """Reject mutating requests under ``prefix`` without a valid ``X-API-Key`` header.
+
+    When the ``BACK_API_KEY`` env var is empty the guard is disabled and a
+    warning is emitted on startup, so local development still works without
+    extra setup. Production deployments must set the variable.
+    """
+
+    expected = os.getenv("BACK_API_KEY", "").strip()
+    if not expected:
+        logging.getLogger("uvicorn.error").warning(
+            "BACK_API_KEY is not set — mutating endpoints are UNPROTECTED"
+        )
+        return
+
+    @app.middleware("http")
+    async def _api_key_middleware(request: Request, call_next):
+        if (
+            request.method in _MUTATING_METHODS
+            and request.url.path.startswith(prefix)
+        ):
+            provided = request.headers.get("X-API-Key", "")
+            if provided != expected:
+                return JSONResponse(
+                    {"detail": "Invalid or missing API key"},
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
+        return await call_next(request)
 
 
 app = create_app()
